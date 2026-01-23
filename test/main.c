@@ -1,8 +1,9 @@
 #include <stdio.h>
 
 #define SUCRE_IMPL 1
-#define SUCRE_ENFORCE_TODOS
 #include "../sucre.h"
+
+// TODO: implement parsing and not just lexing
 
 int main(void)
 {
@@ -15,24 +16,11 @@ int main(void)
 
     if (!Sucre_initLexer(&l, strbuf, sizeof(strbuf), fbuffer, fsize)) return 1;
 
-    while (Sucre_lexerStep(&l)) {
-        if (l.type < 256) {
-            printf("%c\n", l.type);
-        } else if (l.type == SUCRE_LEXEME_ERR) {
-            printf("ERR: %c\n", l.filebuf[l.filebuf_offset]);
-        } else if (l.type == SUCRE_LEXEME_IDENT) {
-            printf("Ident: `%.*s`\n", (int)l.ident_len, &l.filebuf[l.ident_start]);
-        } else if (l.type == SUCRE_LEXEME_NULL) {
-            printf("Null: null\n");
-        } else if (l.type == SUCRE_LEXEME_BOOL) {
-            printf("Bool: `%s`\n", (l.boolval)? "true" : "false");
-        } else if (l.type == SUCRE_LEXEME_NUMBER) {
-            printf("Number: `%.16g`\n", l.numval);
-        } else if (l.type == SUCRE_LEXEME_STR) {
-            printf("String: `%.*s`\n", (int)l.stringval_len, l.strbuf);
-        } else {
-            printf("TYPE: %d\n", l.type);
-        } 
+    Sucre_JsonVal v;
+    Sucre_parseJsonLexer(&v, &l);
+
+    for (size_t i = 0; i < v.v.as_obj.nfields; ++i) {
+        printf("v[\'%.*s\'].type == %d\n", (int)v.v.as_obj.fn_lens[i], v.v.as_obj.field_names[i], v.v.as_obj.field_values[i].type);
     }
 
     free(fbuffer);
