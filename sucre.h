@@ -33,7 +33,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 
-#include <math.h> // for NAN, INFINITY
+#include <math.h> // for signbit, isnan, isinf, INFINITY, NAN
 
 #define SUCRE_TODO(str) do {fprintf(stderr, "[%s:%d: %s] TODO: %s\n", __FILE__, __LINE__, __func__, str); exit(-1);} while (0)
 
@@ -549,29 +549,36 @@ static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, boo
     switch (val->type) {
         case SUCRE_JSONTYPE_NULL: fprintf(file, "%s", "null"); break;
         case SUCRE_JSONTYPE_BOOL: fprintf(file, "%s", (val->v.as_bool)? "true" : "false"); break;
-        case SUCRE_JSONTYPE_NUM:  fprintf(file, "%.15g", val->v.as_num); break;
-        case SUCRE_JSONTYPE_STR: goto lbl_print_str;
-        case SUCRE_JSONTYPE_ARR: goto lbl_print_arr;
-        case SUCRE_JSONTYPE_OBJ: goto lbl_print_obj;
+        case SUCRE_JSONTYPE_NUM:  goto lbl_print_num;
+        case SUCRE_JSONTYPE_STR:  goto lbl_print_str;
+        case SUCRE_JSONTYPE_ARR:  goto lbl_print_arr;
+        case SUCRE_JSONTYPE_OBJ:  goto lbl_print_obj;
     }
 
+    return;
+
+lbl_print_num:
+    if (signbit(val->v.as_num)) fputc('-', file);
+
+    if (isinf(val->v.as_num)) fprintf(file, "%s", "Infinity");
+    else if (isnan(val->v.as_num)) fprintf(file, "%s", "NaN");
+    else fprintf(file, "%.15g", val->v.as_num);
     return;
 
 lbl_print_str:
     fputc('"', file);
     for (size_t i = 0; i < val->v.as_str.len; ++i) {
         switch (val->v.as_str.v[i]) {
-            case '\n': fprintf(file, "%s", "\\n");      continue;
-            case '\\': fprintf(file, "%s", "\\\\");     continue;
-            case '\'': fprintf(file, "%s", "\\'");      continue;
-            case '\"': fprintf(file, "%s", "\\\"");     continue;
-            case '/':  fprintf(file, "%s", "\\/");      continue;
-            case '\b': fprintf(file, "%s", "\\b");      continue;
-            case '\f': fprintf(file, "%s", "\\f");      continue;
-            case '\r': fprintf(file, "%s", "\\r");      continue;
-            case '\t': fprintf(file, "%s", "\\t");      continue;
-            case '\v': fprintf(file, "%s", "\\v");      continue;
-            case '\0': fprintf(file, "%s", "\\u0000");  continue;
+            case '\n': fprintf(file, "%s", "\\n");  continue;
+            case '\\': fprintf(file, "%s", "\\\\"); continue;
+            case '\'': fprintf(file, "%s", "\\'");  continue;
+            case '\"': fprintf(file, "%s", "\\\""); continue;
+            case '/':  fprintf(file, "%s", "\\/");  continue;
+            case '\b': fprintf(file, "%s", "\\b");  continue;
+            case '\f': fprintf(file, "%s", "\\f");  continue;
+            case '\r': fprintf(file, "%s", "\\r");  continue;
+            case '\t': fprintf(file, "%s", "\\t");  continue;
+            case '\v': fprintf(file, "%s", "\\v");  continue;
             default: break;
         }
 
