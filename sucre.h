@@ -558,11 +558,19 @@ static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, boo
     return;
 
 lbl_print_num:
-    if (signbit(val->v.as_num)) fputc('-', file);
+    if (isinf(val->v.as_num)) {
+        if (signbit(val->v.as_num)) fputc('-', file);
+        fprintf(file, "%s", "Infinity");
+        return;
+    }
 
-    if (isinf(val->v.as_num)) fprintf(file, "%s", "Infinity");
-    else if (isnan(val->v.as_num)) fprintf(file, "%s", "NaN");
-    else fprintf(file, "%.15g", val->v.as_num);
+    if (isnan(val->v.as_num)) {
+        if (signbit(val->v.as_num)) fputc('-', file);
+        fprintf(file, "%s", "NaN");
+        return;
+    }
+
+    fprintf(file, "%.15g", val->v.as_num);
     return;
 
 lbl_print_str:

@@ -1,5 +1,5 @@
 {
-    field: [null, Infinity, NaN, true, false, +.100],
+    field: [null, Infinity, NaN, true, false, -.100],
     'field2\t': null,
     num: 1,
     'foo \ud83c\udf3f\/': {
