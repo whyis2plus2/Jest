@@ -79,7 +79,7 @@ typedef enum Sucre_JsonType {
 
 typedef struct Sucre_JsonVal {
     Sucre_JsonType type;
-    
+
     union {
         bool as_bool;
         double as_num;
@@ -104,18 +104,26 @@ void Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem);
 void Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value);
 void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 
+void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode);
+
 #endif // !SUCRE_H_
 
 #ifdef SUCRE_IMPL
 
+// helper functions for lexers
 static void SucreInternal_lexerSkipCommentAndWhiteSpace(Sucre_Lexer *l);
 static void SucreInternal_lexerHandleStr(Sucre_Lexer *l);
+
+// helper functions for parsing individual pieces of data
 static void SucreInternal_parseNull(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 static void SucreInternal_parseBool(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 static void SucreInternal_parseNum(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 static void SucreInternal_parseStr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 static void SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+
+// Sucre_printJsonVal with prepended tabs
+static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode, int starttabs, int midtabs);
 
 char *Sucre_strndup(const char *str, size_t len)
 {
@@ -290,6 +298,11 @@ void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         case '{':               SucreInternal_parseObj(out, lexer);  break;
         default: printf("TYPE: %d\n", lexer->type); SUCRE_TODO("handle invalid tokens");
     }
+}
+
+void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode)
+{
+    SucreInternal_printJsonVal(file, val, escape_unicode, 0, 0);
 }
 
 static void SucreInternal_lexerSkipCommentAndWhiteSpace(Sucre_Lexer *l)
@@ -525,6 +538,127 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
     if (lexer->type != '}') SUCRE_TODO("handle mismatched closing curly brackets");
 
     Sucre_lexerStep(lexer);
+}
+
+static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode, int starttabs, int midtabs)
+{
+    if (!file || !val) return;
+
+    for (int i = 0; i < starttabs; ++i) fputc('\t', file);
+
+    switch (val->type) {
+        case SUCRE_JSONTYPE_NULL: fprintf(file, "%s", "null"); break;
+        case SUCRE_JSONTYPE_BOOL: fprintf(file, "%s", (val->v.as_bool)? "true" : "false"); break;
+        case SUCRE_JSONTYPE_NUM:  fprintf(file, "%.15g", val->v.as_num); break;
+        case SUCRE_JSONTYPE_STR: goto lbl_print_str;
+        case SUCRE_JSONTYPE_ARR: goto lbl_print_arr;
+        case SUCRE_JSONTYPE_OBJ: goto lbl_print_obj;
+    }
+
+    return;
+
+lbl_print_str:
+    fputc('"', file);
+    for (size_t i = 0; i < val->v.as_str.len; ++i) {
+        switch (val->v.as_str.v[i]) {
+            case '\n': fprintf(file, "%s", "\\n");      continue;
+            case '\\': fprintf(file, "%s", "\\\\");     continue;
+            case '\'': fprintf(file, "%s", "\\'");      continue;
+            case '\"': fprintf(file, "%s", "\\\"");     continue;
+            case '/':  fprintf(file, "%s", "\\/");      continue;
+            case '\b': fprintf(file, "%s", "\\b");      continue;
+            case '\f': fprintf(file, "%s", "\\f");      continue;
+            case '\r': fprintf(file, "%s", "\\r");      continue;
+            case '\t': fprintf(file, "%s", "\\t");      continue;
+            case '\v': fprintf(file, "%s", "\\v");      continue;
+            case '\0': fprintf(file, "%s", "\\u0000");  continue;
+            default: break;
+        }
+
+        uint32_t codepoint = (uint8_t)(val->v.as_str.v[i]);
+
+        if (iscntrl((int)codepoint)) {
+            fprintf(file, "\\u%.4" PRIx32, codepoint);
+            continue;
+        }
+
+        if (escape_unicode && codepoint >= 0x80) {
+            if (codepoint & 0xf0) {
+                codepoint = (codepoint & 0x07) << 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+                codepoint <<= 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+                codepoint <<= 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+
+                // break the codepoint into utf-16 surrogate pairs
+                codepoint -= 0x10000;
+                codepoint &= 0xfffff;
+                uint16_t hi = (codepoint >> 10) + 0xd800;
+                uint16_t lo = (codepoint & 0x3ff) + 0xdc00;
+
+                fprintf(file, "\\u%.4" PRIx32 "\\u%.4" PRIx32, hi, lo);
+                continue;
+            }
+
+            if (codepoint & 0xc0) {
+                codepoint = (codepoint & 0x1f) << 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+                fprintf(file, "\\u%.4" PRIx32, codepoint);
+                continue;
+            }
+
+            if (codepoint & 0xe0) {
+                codepoint = (codepoint & 0x0f) << 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+                codepoint <<= 6;
+                codepoint |= ((uint8_t)(val->v.as_str.v[++i]) & 0x3f);
+                fprintf(file, "\\u%.4" PRIx32, codepoint);
+                continue;
+            }
+        } else fputc(val->v.as_str.v[i], file);
+    }
+    fputc('"', file);
+
+    return;
+
+lbl_print_arr:
+    fputc('[', file);
+
+    for (size_t i = 0; i < val->v.as_arr.len; ++i) {
+        if (i) fputc(',', file);
+        fputc('\n', file);
+
+        SucreInternal_printJsonVal(file, &val->v.as_arr.v[i], escape_unicode, midtabs + 1, midtabs + 1);
+    }
+
+    fputc('\n', file);
+    for (int i = 0; i < midtabs; ++i) fputc('\t', file);
+    fputc(']', file);
+    return;
+
+lbl_print_obj:
+    fputc('{', file);
+
+    for (size_t i = 0; i < val->v.as_obj.nfields; ++i) {
+        if (i) fputc(',', file);
+        fputc('\n', file);
+
+        Sucre_JsonVal name_as_val;
+        name_as_val.type = SUCRE_JSONTYPE_STR;
+        name_as_val.v.as_str.len = val->v.as_obj.fn_lens[i];
+        name_as_val.v.as_str.v   = val->v.as_obj.field_names[i];
+
+        SucreInternal_printJsonVal(file, &name_as_val, escape_unicode, midtabs + 1, midtabs + 1);
+        fputc(':', file);
+        fputc(' ', file);
+        SucreInternal_printJsonVal(file, &val->v.as_obj.field_values[i], escape_unicode, 0, midtabs + 1);
+    }
+
+    fputc('\n', file);
+    for (int i = 0; i < midtabs; ++i) fputc('\t', file);
+    fputc('}', file);
+    return;
 }
 
 #endif // SUCRE_IMPL

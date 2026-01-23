@@ -19,9 +19,11 @@ int main(void)
     Sucre_JsonVal v;
     Sucre_parseJsonLexer(&v, &l);
 
-    for (size_t i = 0; i < v.v.as_obj.nfields; ++i) {
-        printf("v[\'%.*s\'].type == %d\n", (int)v.v.as_obj.fn_lens[i], v.v.as_obj.field_names[i], v.v.as_obj.field_values[i].type);
-    }
+    // for (size_t i = 0; i < v.v.as_obj.nfields; ++i) {
+    //     printf("v[\'%.*s\'].type == %d\n", (int)v.v.as_obj.fn_lens[i], v.v.as_obj.field_names[i], v.v.as_obj.field_values[i].type);
+    // }
+
+    Sucre_printJsonVal(stdout, &v, true);
 
     free(fbuffer);
     return 0;
