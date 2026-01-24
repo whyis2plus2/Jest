@@ -24,6 +24,7 @@ int main(void)
     // }
 
     Sucre_printJsonVal(stdout, &v, true);
+    Sucre_destroyJsonVal(&v);
 
     free(fbuffer);
     return 0;

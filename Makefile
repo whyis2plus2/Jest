@@ -3,7 +3,7 @@
 CC := gcc
 LD := gcc
 
-CFLAGS += -std=c99 -pedantic-errors
+CFLAGS += -std=c99 -pedantic-errors -g -O0
 CFLAGS += -Wall -Wextra -Wunused -Wformat=2
 CFLAGS +=
 

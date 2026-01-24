@@ -105,6 +105,7 @@ void Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_le
 void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode);
+void Sucre_destroyJsonVal(Sucre_JsonVal *val);
 
 #endif // !SUCRE_H_
 
@@ -303,6 +304,51 @@ void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode)
 {
     SucreInternal_printJsonVal(file, val, escape_unicode, 0, 0);
+}
+
+void Sucre_destroyJsonVal(Sucre_JsonVal *val)
+{
+    if (!val) return;
+
+    switch (val->type) {
+        case SUCRE_JSONTYPE_NULL:
+        case SUCRE_JSONTYPE_BOOL:
+        case SUCRE_JSONTYPE_NUM:
+            break;
+
+        case SUCRE_JSONTYPE_STR: goto lbl_destroy_str;
+        case SUCRE_JSONTYPE_ARR: goto lbl_destroy_arr;
+        case SUCRE_JSONTYPE_OBJ: goto lbl_destroy_obj;
+    }
+
+    memset(val, 0, sizeof(*val));
+    return;
+
+lbl_destroy_str:
+    free(val->v.as_str.v);
+    memset(val, 0, sizeof(*val));
+    return;
+
+lbl_destroy_arr:
+    for (size_t i = 0; i < val->v.as_arr.len; ++i) {
+        Sucre_destroyJsonVal(&val->v.as_arr.v[i]);
+    }
+
+    free(val->v.as_arr.v);
+    memset(val, 0, sizeof(*val));
+    return;
+
+lbl_destroy_obj:
+    for (size_t i = 0; i < val->v.as_obj.nfields; ++i) {
+        Sucre_destroyJsonVal(&val->v.as_obj.field_values[i]);
+        free(val->v.as_obj.field_names[i]);
+    }
+
+    free(val->v.as_obj.field_names);
+    free(val->v.as_obj.fn_lens);
+    free(val->v.as_obj.field_values);
+    memset(val, 0, sizeof(*val));
+    return;
 }
 
 static void SucreInternal_lexerSkipCommentAndWhiteSpace(Sucre_Lexer *l)
@@ -513,18 +559,17 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
     do {
     Sucre_lexerStep(lexer);
         if (lexer->type == '}') break;
-        char *name = NULL;
+        const char *name = NULL;
         size_t name_len = 0;
         
         if (lexer->type != SUCRE_LEXEME_STR && lexer->type != SUCRE_LEXEME_IDENT) SUCRE_TODO("handle invalid keys");
         
         name_len = (lexer->type == SUCRE_LEXEME_STR)? lexer->stringval_len : lexer->ident_len;
-        name = Sucre_strndup(
+        name = 
             (lexer->type == SUCRE_LEXEME_STR)
                 ?lexer->strbuf
-                :&lexer->filebuf[lexer->ident_start],
-            name_len
-        );
+                :&lexer->filebuf[lexer->ident_start];
+
         if (!name) SUCRE_TODO("handle name strndup failure");
 
         Sucre_lexerStep(lexer);
