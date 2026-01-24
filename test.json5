@@ -1,3 +1,8 @@
+// comments!
+/*
+    multiline comments too
+*/
+
 {
     field: [null, Infinity, NaN, true, false, -.100],
     'field2\t': null,

@@ -14,7 +14,10 @@ int main(void)
     size_t fsize = Sucre_readEntireFile(&fbuffer, "test.json5");
     if (!fsize) return 1;
 
-    if (!Sucre_initLexer(&l, strbuf, sizeof(strbuf), fbuffer, fsize)) return 1;
+    if (!Sucre_initLexer(&l, strbuf, sizeof(strbuf), fbuffer, fsize)) {
+        fprintf(stderr, "Failed to create lexer\n");
+        return 1;
+    }
 
     Sucre_JsonVal v;
     Sucre_parseJsonLexer(&v, &l);

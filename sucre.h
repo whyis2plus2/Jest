@@ -521,8 +521,7 @@ static void SucreInternal_lexerSkipCommentAndWhiteSpace(Sucre_Lexer *l)
     } else l->filebuf_offset = start_offset;
 
 lbl_end:
-    // skip terminal whitespace
-    while (isspace(l->filebuf[l->filebuf_offset])) ++l->filebuf_offset;
+    SucreInternal_lexerSkipCommentAndWhiteSpace(l); // skip any extra comments and such
 }
 
 static Sucre_Error SucreInternal_lexerHandleStr(Sucre_Lexer *l)
