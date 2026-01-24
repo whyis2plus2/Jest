@@ -559,16 +559,18 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
     do {
     Sucre_lexerStep(lexer);
         if (lexer->type == '}') break;
-        const char *name = NULL;
+        char *name = NULL;
         size_t name_len = 0;
         
         if (lexer->type != SUCRE_LEXEME_STR && lexer->type != SUCRE_LEXEME_IDENT) SUCRE_TODO("handle invalid keys");
         
         name_len = (lexer->type == SUCRE_LEXEME_STR)? lexer->stringval_len : lexer->ident_len;
-        name = 
+        name = Sucre_strndup(
             (lexer->type == SUCRE_LEXEME_STR)
                 ?lexer->strbuf
-                :&lexer->filebuf[lexer->ident_start];
+                :&lexer->filebuf[lexer->ident_start],
+            name_len
+        );
 
         if (!name) SUCRE_TODO("handle name strndup failure");
 
@@ -579,6 +581,7 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         Sucre_JsonVal elem;
         Sucre_parseJsonLexer(&elem, lexer);
         Sucre_jsonObjSet(out, name, name_len, &elem);
+        free(name);
     } while (lexer->type == ',');
     if (lexer->type != '}') SUCRE_TODO("handle mismatched closing curly brackets");
 
