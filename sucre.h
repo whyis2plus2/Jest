@@ -443,7 +443,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
 
         if (is_field_start && current->type == SUCRE_JSONTYPE_ARR) {
             if (lexer.type != SUCRE_LEXEME_NUM) {
-                if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
                 return NULL;
             }
 
