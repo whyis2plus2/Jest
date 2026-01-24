@@ -392,6 +392,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
 
     if (!Sucre_initLexer(&lexer, strbuf, 1024, accessor, strlen(accessor) + 1)) {
         if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADLEXER;
+        free(strbuf);
         return NULL;
     }
 
@@ -426,6 +427,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
 
             if (i >= current->v.as_obj.nfields) {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                free(strbuf);
                 return NULL;
             }
 
@@ -436,6 +438,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
             Sucre_lexerStep(&lexer);
             if (lexer.type != ']') {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                free(strbuf);
                 return NULL;
             }
             continue;
@@ -444,12 +447,14 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
         if (is_field_start && current->type == SUCRE_JSONTYPE_ARR) {
             if (lexer.type != SUCRE_LEXEME_NUM) {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                free(strbuf);
                 return NULL;
             }
 
             elem_idx = (size_t)lexer.numval;
             if (elem_idx >= current->v.as_arr.len) {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                free(strbuf);
                 return NULL;
             }
 
@@ -460,6 +465,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
             Sucre_lexerStep(&lexer);
             if (lexer.type != ']') {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                free(strbuf);
                 return NULL;
             }
             continue;
@@ -468,6 +474,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
         if (lexer.type == '[') {
             if (is_field_start) {
                 if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                free(strbuf);
                 return NULL;
             }
 
@@ -476,6 +483,7 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_
         }
 
         if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+        free(strbuf);
         return NULL;
     } while (Sucre_lexerStep(&lexer));
 
