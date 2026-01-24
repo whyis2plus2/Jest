@@ -84,7 +84,8 @@ typedef enum Sucre_Error {
     SUCRE_ERROR_BADPARAM, // invalid parameter
     SUCRE_ERROR_SYNTAX, // syntax error
     SUCRE_ERROR_BADLEXER, // lexer creation failed at some point
-    SUCRE_ERROR_BADCHAR // malformed unicode/hex char
+    SUCRE_ERROR_BADCHAR, // malformed unicode/hex char
+    SUCRE_ERROR_IO // i/o error
 } Sucre_Error;
 
 typedef struct Sucre_JsonVal {
@@ -108,13 +109,17 @@ typedef struct Sucre_JsonVal {
 } Sucre_JsonVal;
 
 char *Sucre_strndup(const char *str, size_t len);
-size_t Sucre_readEntireFile(char **out, const char *path);
+size_t Sucre_readEntireFileFromPath(char **out, const char *path);
+size_t Sucre_readEntireFile(char **out, FILE *file);
 bool Sucre_initLexer(Sucre_Lexer *l, char *strbuf, size_t strbuf_sz, const char *filebuf, size_t filebuf_sz);
 bool Sucre_lexerStep(Sucre_Lexer *l);
 
 Sucre_Error Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem);
 Sucre_Error Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value);
 Sucre_Error Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+Sucre_Error Sucre_parseJsonFile(Sucre_JsonVal *out, FILE *file);
+Sucre_Error Sucre_parseJsonFileFromPath(Sucre_JsonVal *out, const char *path);
+Sucre_Error Sucre_parseJsonFromStr(Sucre_JsonVal *out, const char *str);
 
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode);
 void Sucre_destroyJsonVal(Sucre_JsonVal *val);
@@ -151,24 +156,32 @@ char *Sucre_strndup(const char *str, size_t len)
     return ret;
 }
 
-size_t Sucre_readEntireFile(char **out, const char *path)
+size_t Sucre_readEntireFile(char **out, FILE *file)
+{
+    if (!out || !file) return 0; 
+
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    *out = calloc(fsize + 1, 1);
+    if (!*out) return 0;
+
+    fread(*out, 1, fsize, file);
+    return (size_t)fsize;
+}
+
+size_t Sucre_readEntireFileFromPath(char **out, const char *path)
 {
     if (!out || !path) return 0; 
 
     FILE *f = fopen(path, "r");
     if (!f) return 0;
 
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    *out = calloc(fsize + 1, 1);
-    if (!*out) return 0;
-
-    fread(*out, 1, fsize, f);
+    const size_t ret = Sucre_readEntireFile(out, f);
     fclose(f);
 
-    return (size_t)fsize;
+    return ret;
 }
 
 bool Sucre_initLexer(Sucre_Lexer *l, char *strbuf, size_t strbuf_sz, const char *filebuf, size_t filebuf_sz)
@@ -319,6 +332,50 @@ Sucre_Error Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 
     return SUCRE_ERROR_NONE;
 }
+
+Sucre_Error Sucre_parseJsonFile(Sucre_JsonVal *out, FILE *file)
+{
+    if (!out || !file) return SUCRE_ERROR_BADPARAM;
+
+    char *strbuf = calloc(1024, 1);
+    if (!strbuf) return SUCRE_ERROR_NOMEM;
+
+    char *filebuf = NULL;
+    size_t filebuf_sz = Sucre_readEntireFile(&filebuf, file);
+
+    if (!filebuf || !filebuf_sz) {
+        free(strbuf);
+        return SUCRE_ERROR_IO;
+    }
+
+    Sucre_Lexer l;
+    if (!Sucre_initLexer(&l, strbuf, 1024, filebuf, filebuf_sz)) {
+        free(strbuf);
+        free(filebuf);
+        return SUCRE_ERROR_BADLEXER;
+    }
+
+    Sucre_Error ret = Sucre_parseJsonLexer(out, &l);
+
+    free(strbuf);
+    free(filebuf);
+    return ret;
+}
+
+Sucre_Error Sucre_parseJsonFileFromPath(Sucre_JsonVal *out, const char *path)
+{
+    if (!out || !path) return 0; 
+
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+
+    const Sucre_Error ret = Sucre_parseJsonFile(out, f);
+    fclose(f);
+
+    return ret;
+}
+
+Sucre_Error Sucre_parseJsonFromStr(Sucre_JsonVal *out, const char *str);
 
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode)
 {
