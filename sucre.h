@@ -74,8 +74,18 @@ typedef enum Sucre_JsonType {
     SUCRE_JSONTYPE_NUM,
     SUCRE_JSONTYPE_STR,
     SUCRE_JSONTYPE_ARR,
-    SUCRE_JSONTYPE_OBJ
+    SUCRE_JSONTYPE_OBJ,
+    SUCRE_JSONTYPE_ERR
 } Sucre_JsonType;
+
+typedef enum Sucre_Error {
+    SUCRE_ERROR_NONE, // no error, everything is fine :)
+    SUCRE_ERROR_NOMEM, // malloc/calloc/realloc failed
+    SUCRE_ERROR_BADPARAM, // invalid parameter
+    SUCRE_ERROR_SYNTAX, // syntax error
+    SUCRE_ERROR_BADLEXER, // lexer creation failed at some point
+    SUCRE_ERROR_BADCHAR // malformed unicode/hex char
+} Sucre_Error;
 
 typedef struct Sucre_JsonVal {
     Sucre_JsonType type;
@@ -92,6 +102,8 @@ typedef struct Sucre_JsonVal {
             char **field_names; // field names
             struct Sucre_JsonVal *field_values; // field values
         } as_obj;
+
+        Sucre_Error as_err;
     } v;
 } Sucre_JsonVal;
 
@@ -100,14 +112,14 @@ size_t Sucre_readEntireFile(char **out, const char *path);
 bool Sucre_initLexer(Sucre_Lexer *l, char *strbuf, size_t strbuf_sz, const char *filebuf, size_t filebuf_sz);
 bool Sucre_lexerStep(Sucre_Lexer *l);
 
-void Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem);
-void Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value);
-void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+Sucre_Error Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem);
+Sucre_Error Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value);
+Sucre_Error Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode);
 void Sucre_destroyJsonVal(Sucre_JsonVal *val);
 
-Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor);
+Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_Error *opt_err_out);
 
 #endif // !SUCRE_H_
 
@@ -115,15 +127,15 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor);
 
 // helper functions for lexers
 static void SucreInternal_lexerSkipCommentAndWhiteSpace(Sucre_Lexer *l);
-static void SucreInternal_lexerHandleStr(Sucre_Lexer *l);
+static Sucre_Error SucreInternal_lexerHandleStr(Sucre_Lexer *l);
 
 // helper functions for parsing individual pieces of data
-static void SucreInternal_parseNull(Sucre_JsonVal *out, Sucre_Lexer *lexer);
-static void SucreInternal_parseBool(Sucre_JsonVal *out, Sucre_Lexer *lexer);
-static void SucreInternal_parseNum(Sucre_JsonVal *out, Sucre_Lexer *lexer);
-static void SucreInternal_parseStr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
-static void SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
-static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseNull(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseBool(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseNum(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseStr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer);
+static Sucre_Error SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer);
 
 // Sucre_printJsonVal with prepended tabs
 static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode, int starttabs, int midtabs);
@@ -242,34 +254,35 @@ bool Sucre_lexerStep(Sucre_Lexer *l)
 
 lbl_str:
     l->type = SUCRE_LEXEME_STR;
-    SucreInternal_lexerHandleStr(l);
+    if (SucreInternal_lexerHandleStr(l)) return false;
     return true;
 }
 
-void Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem)
+Sucre_Error Sucre_jsonArrayAppend(Sucre_JsonVal *arr, const Sucre_JsonVal *elem)
 {
-    if (!arr || !elem || arr == elem) return;
-    if (arr->type != SUCRE_JSONTYPE_ARR) return;
+    if (!arr || !elem || arr == elem) return SUCRE_ERROR_BADPARAM;
+    if (arr->type != SUCRE_JSONTYPE_ARR) return SUCRE_ERROR_BADPARAM;
 
     if (arr->v.as_arr.len + 1 > arr->v.as_arr.cap) {
         arr->v.as_arr.cap = (arr->v.as_arr.cap)? arr->v.as_arr.cap * 2 : 32;
         arr->v.as_arr.elems = (Sucre_JsonVal *)realloc(arr->v.as_arr.elems, sizeof(*arr->v.as_arr.elems) * arr->v.as_arr.cap);
-        if (!arr->v.as_arr.elems) SUCRE_TODO("handle this");
+        if (!arr->v.as_arr.elems) return SUCRE_ERROR_NOMEM;
     }
 
     memcpy(&arr->v.as_arr.elems[arr->v.as_arr.len++], elem, sizeof(*elem));
+    return SUCRE_ERROR_NONE;
 }
 
-void Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value)
+Sucre_Error Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_len, const Sucre_JsonVal *value)
 {
-    if (!obj || !field_name || !value) return;
-    if (obj == value) return;
-    if (obj->type != SUCRE_JSONTYPE_OBJ) return;
+    if (!obj || !field_name || !value) return SUCRE_ERROR_BADPARAM;
+    if (obj == value) return SUCRE_ERROR_BADPARAM;
+    if (obj->type != SUCRE_JSONTYPE_OBJ) return SUCRE_ERROR_BADPARAM;
 
     for (size_t i = 0; i < obj->v.as_obj.nfields; ++i) {
         if (!strncmp(field_name, obj->v.as_obj.field_names[i], name_len)) {
             memcpy(&obj->v.as_obj.field_values[i], value, sizeof(*value));
-            return;
+            return SUCRE_ERROR_NONE;
         }
     }
 
@@ -278,19 +291,21 @@ void Sucre_jsonObjSet(Sucre_JsonVal *obj, const char *field_name, size_t name_le
         obj->v.as_obj.field_names = (char **)realloc(obj->v.as_obj.field_names, sizeof(*obj->v.as_obj.field_names) * obj->v.as_obj.nalloced);
         obj->v.as_obj.fn_lens = (size_t *)realloc(obj->v.as_obj.fn_lens, sizeof(*obj->v.as_obj.fn_lens) * obj->v.as_obj.nalloced);
         obj->v.as_obj.field_values = (Sucre_JsonVal *)realloc(obj->v.as_obj.field_values, sizeof(*obj->v.as_obj.field_values) * obj->v.as_obj.nalloced);
-        if (!obj->v.as_obj.field_names || !obj->v.as_obj.fn_lens || !obj->v.as_obj.field_values) SUCRE_TODO("handle this");
+        if (!obj->v.as_obj.field_names || !obj->v.as_obj.fn_lens || !obj->v.as_obj.field_values) return SUCRE_ERROR_NOMEM;
     }
 
     obj->v.as_obj.fn_lens[obj->v.as_obj.nfields] = name_len;
     obj->v.as_obj.field_names[obj->v.as_obj.nfields] = Sucre_strndup(field_name, name_len);
-    if (!obj->v.as_obj.field_names[obj->v.as_obj.nfields]) SUCRE_TODO("handle this");
+    if (!obj->v.as_obj.field_names[obj->v.as_obj.nfields]) return SUCRE_ERROR_NOMEM;
     memcpy(&obj->v.as_obj.field_values[obj->v.as_obj.nfields], value, sizeof(*value));
     ++obj->v.as_obj.nfields;
+
+    return SUCRE_ERROR_NONE;
 }
 
-void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+Sucre_Error Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
 
     switch (lexer->type) {
         case SUCRE_LEXEME_NULL: SucreInternal_parseNull(out,lexer);  break;
@@ -299,8 +314,10 @@ void Sucre_parseJsonLexer(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         case SUCRE_LEXEME_STR:  SucreInternal_parseStr(out, lexer);  break;
         case '[':               SucreInternal_parseArr(out, lexer);  break;
         case '{':               SucreInternal_parseObj(out, lexer);  break;
-        default: printf("TYPE: %d\n", lexer->type); SUCRE_TODO("handle invalid tokens");
+        default: return SUCRE_ERROR_SYNTAX;
     }
+
+    return SUCRE_ERROR_NONE;
 }
 
 void Sucre_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode)
@@ -316,6 +333,7 @@ void Sucre_destroyJsonVal(Sucre_JsonVal *val)
         case SUCRE_JSONTYPE_NULL:
         case SUCRE_JSONTYPE_BOOL:
         case SUCRE_JSONTYPE_NUM:
+        case SUCRE_JSONTYPE_ERR:
             break;
 
         case SUCRE_JSONTYPE_STR: goto lbl_destroy_str;
@@ -353,22 +371,28 @@ lbl_destroy_obj:
     return;
 }
 
-Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor)
+Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor, Sucre_Error *opt_err_out)
 {
     if (!parent || !accessor) {
-        SUCRE_TODO("return an error value when this occurs");
+        if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+        return NULL;
     }
 
     if (parent->type != SUCRE_JSONTYPE_OBJ && parent->type != SUCRE_JSONTYPE_ARR) {
-        SUCRE_TODO("give an 'invalid type' error of some kind");
+        if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+        return NULL;
     }
 
     Sucre_Lexer lexer;
     char *strbuf = malloc(1024);
-    if (!strbuf) SUCRE_TODO("return an error");
+    if (!strbuf) {
+        if (opt_err_out) *opt_err_out = SUCRE_ERROR_NOMEM;
+        return NULL;
+    }
 
     if (!Sucre_initLexer(&lexer, strbuf, 1024, accessor, strlen(accessor) + 1)) {
-        SUCRE_TODO("handle this lexer failing to init in some way (return an error value?)");
+        if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADLEXER;
+        return NULL;
     }
 
     bool is_field_start = false;
@@ -381,7 +405,8 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor)
     do {
         if (is_field_start && current->type == SUCRE_JSONTYPE_OBJ) {
             if (lexer.type != SUCRE_LEXEME_STR && lexer.type != SUCRE_LEXEME_IDENT) {
-                SUCRE_TODO("give an error");
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                return NULL;
             }
 
             field_name = (lexer.type == SUCRE_LEXEME_STR)
@@ -399,44 +424,64 @@ Sucre_JsonVal *Sucre_jsonIdx(Sucre_JsonVal *parent, const char *accessor)
                 }
             }
 
-            if (i >= current->v.as_obj.nfields) SUCRE_TODO("give an 'invalid key' error");
+            if (i >= current->v.as_obj.nfields) {
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                return NULL;
+            }
+
             current = &current->v.as_obj.field_values[i];
 
             is_field_start = false;
 
             Sucre_lexerStep(&lexer);
-            if (lexer.type != ']') SUCRE_TODO("give an error");
+            if (lexer.type != ']') {
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                return NULL;
+            }
             continue;
         }
 
         if (is_field_start && current->type == SUCRE_JSONTYPE_ARR) {
             if (lexer.type != SUCRE_LEXEME_NUM) {
-                SUCRE_TODO("give an error");
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                return NULL;
             }
 
             elem_idx = (size_t)lexer.numval;
-            if (elem_idx >= current->v.as_arr.len) SUCRE_TODO("give 'out of bounds' error");
+            if (elem_idx >= current->v.as_arr.len) {
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_BADPARAM;
+                return NULL;
+            }
 
             current = &current->v.as_arr.elems[elem_idx];
 
             is_field_start = false;
             
             Sucre_lexerStep(&lexer);
-            if (lexer.type != ']') SUCRE_TODO("give an error");
+            if (lexer.type != ']') {
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                return NULL;
+            }
             continue;
         }
 
         if (lexer.type == '[') {
-            if (is_field_start) SUCRE_TODO("give an error");
+            if (is_field_start) {
+                if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+                return NULL;
+            }
+
             is_field_start = true;
             continue;
         }
 
-        SUCRE_TODO("give an error");
+        if (opt_err_out) *opt_err_out = SUCRE_ERROR_SYNTAX;
+        return NULL;
     } while (Sucre_lexerStep(&lexer));
 
     free(strbuf);
 
+    if (opt_err_out) *opt_err_out = SUCRE_ERROR_NONE;
     return current;
 }
 
@@ -472,13 +517,13 @@ lbl_end:
     while (isspace(l->filebuf[l->filebuf_offset])) ++l->filebuf_offset;
 }
 
-static void SucreInternal_lexerHandleStr(Sucre_Lexer *l)
+static Sucre_Error SucreInternal_lexerHandleStr(Sucre_Lexer *l)
 {
-    if (!l) return;
+    if (!l) return SUCRE_ERROR_BADPARAM;
 
     SucreInternal_lexerSkipCommentAndWhiteSpace(l);
     if (l->filebuf[l->filebuf_offset] != '\'' && l->filebuf[l->filebuf_offset] != '\"') {
-        return;
+        return SUCRE_ERROR_BADPARAM;
     }
 
     l->type = SUCRE_LEXEME_STR;
@@ -506,7 +551,7 @@ static void SucreInternal_lexerHandleStr(Sucre_Lexer *l)
                     int offset = 0;
                     uint32_t codepoint = 0;
                     sscanf(&l->filebuf[l->filebuf_offset], "\\u%4" SCNx32 "%n", &codepoint, &offset);
-                    if (offset < 6) SUCRE_TODO("give an error/warning for unicode chars that don't have all 4 digits");
+                    if (offset < 6) return SUCRE_ERROR_BADCHAR;
 
                     // if codepoint is a hi surrogate
                     if (0xd800 <= codepoint && codepoint <= 0xdfbb) {
@@ -514,7 +559,7 @@ static void SucreInternal_lexerHandleStr(Sucre_Lexer *l)
                         const int sscanf_result = sscanf(&l->filebuf[l->filebuf_offset + 6], "\\u%4" SCNx32 "%n", &lo, &offset);
 
                         if (sscanf_result == 1) { // if there is a second unicode char
-                            if (offset < 6) SUCRE_TODO("give an error/warning for unicode lo surrogates that don't have all 4 digits");
+                            if (offset < 6) return SUCRE_ERROR_BADCHAR;
 
                             if (0xdc00 <= lo && lo <= 0xdfff) { // check if it's a lo surrogate to match the hi surrogate
                                 offset = 12;
@@ -551,7 +596,7 @@ static void SucreInternal_lexerHandleStr(Sucre_Lexer *l)
                     int offset = 0;
                     uint32_t codepoint = 0;
                     sscanf(&l->filebuf[l->filebuf_offset], "\\x%2" SCNx32 "%n", &codepoint, &offset);
-                    if (offset < 4) SUCRE_TODO("give an error/warning for hex chars that don't have both digits");
+                    if (offset < 4) return SUCRE_ERROR_BADCHAR;
 
                     if (codepoint <= 0x7F) {
                         l->strbuf[l->strval_len++] = (char)codepoint;
@@ -574,53 +619,62 @@ static void SucreInternal_lexerHandleStr(Sucre_Lexer *l)
     }
 
     ++l->filebuf_offset;
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseNull(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseNull(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != SUCRE_LEXEME_NULL) return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != SUCRE_LEXEME_NULL) return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_NULL;
     Sucre_lexerStep(lexer);
+
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseBool(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseBool(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != SUCRE_LEXEME_BOOL) return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != SUCRE_LEXEME_BOOL) return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_BOOL;
     out->v.as_bool = lexer->boolval;
     Sucre_lexerStep(lexer);
+
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseNum(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseNum(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != SUCRE_LEXEME_NUM) return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != SUCRE_LEXEME_NUM) return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_NUM;
     out->v.as_num = lexer->numval;
     Sucre_lexerStep(lexer);
+
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseStr(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseStr(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != SUCRE_LEXEME_STR) return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != SUCRE_LEXEME_STR) return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_STR;
     out->v.as_str.len = lexer->strval_len;
     out->v.as_str.data   = Sucre_strndup(lexer->strbuf, lexer->strval_len);
-    if (!out->v.as_str.data) SUCRE_TODO("handle this Sucre_strndup failure");
+    if (!out->v.as_str.data) return SUCRE_ERROR_NOMEM;
+
     Sucre_lexerStep(lexer);
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != '[') return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != '[') return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_ARR;
     memset(&out->v, 0, sizeof(out->v));
@@ -632,15 +686,16 @@ static void SucreInternal_parseArr(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         Sucre_parseJsonLexer(&elem, lexer);
         Sucre_jsonArrayAppend(out, &elem);
     } while (lexer->type == ',');
-    if (lexer->type != ']') SUCRE_TODO("handle mismatched closing square brackets");
+    if (lexer->type != ']') return SUCRE_ERROR_SYNTAX;
 
     Sucre_lexerStep(lexer);
+    return SUCRE_ERROR_NONE;
 }
 
-static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
+static Sucre_Error SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
 {
-    if (!out || !lexer) return;
-    if (lexer->type != '{') return;
+    if (!out || !lexer) return SUCRE_ERROR_BADPARAM;
+    if (lexer->type != '{') return SUCRE_ERROR_BADPARAM;
 
     out->type = SUCRE_JSONTYPE_OBJ;
     memset(&out->v, 0, sizeof(out->v));
@@ -651,7 +706,7 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         char *name = NULL;
         size_t name_len = 0;
         
-        if (lexer->type != SUCRE_LEXEME_STR && lexer->type != SUCRE_LEXEME_IDENT) SUCRE_TODO("handle invalid keys");
+        if (lexer->type != SUCRE_LEXEME_STR && lexer->type != SUCRE_LEXEME_IDENT) return SUCRE_ERROR_BADPARAM;
         
         name_len = (lexer->type == SUCRE_LEXEME_STR)? lexer->strval_len : lexer->ident_len;
         name = Sucre_strndup(
@@ -661,10 +716,10 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
             name_len
         );
 
-        if (!name) SUCRE_TODO("handle name strndup failure");
+        if (!name) return SUCRE_ERROR_NOMEM;
 
         Sucre_lexerStep(lexer);
-        if (lexer->type != ':') SUCRE_TODO("handle missing : after key value");
+        if (lexer->type != ':') return SUCRE_ERROR_SYNTAX;
         Sucre_lexerStep(lexer);
 
         Sucre_JsonVal elem;
@@ -672,9 +727,10 @@ static void SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer)
         Sucre_jsonObjSet(out, name, name_len, &elem);
         free(name);
     } while (lexer->type == ',');
-    if (lexer->type != '}') SUCRE_TODO("handle mismatched closing curly brackets");
+    if (lexer->type != '}') return SUCRE_ERROR_SYNTAX;
 
     Sucre_lexerStep(lexer);
+    return SUCRE_ERROR_NONE;
 }
 
 static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode, int starttabs, int midtabs)
@@ -690,6 +746,7 @@ static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, boo
         case SUCRE_JSONTYPE_STR:  goto lbl_print_str;
         case SUCRE_JSONTYPE_ARR:  goto lbl_print_arr;
         case SUCRE_JSONTYPE_OBJ:  goto lbl_print_obj;
+        case SUCRE_JSONTYPE_ERR:  break;
     }
 
     return;

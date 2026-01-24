@@ -23,7 +23,7 @@ int main(void)
     //     printf("v[\'%.*s\'].type == %d\n", (int)v.v.as_obj.fn_lens[i], v.v.as_obj.field_names[i], v.v.as_obj.field_values[i].type);
     // }
 
-    Sucre_JsonVal *v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][0]");
+    Sucre_JsonVal *v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][0]", NULL);
     printf("v: ");
     Sucre_printJsonVal(stdout, &v, true);
     printf("\n\nv2: ");
