@@ -10,6 +10,37 @@ struct Foo {
     bool baz;
 };
 
+void serialize_test(void)
+{
+    static char strbuf1[32] = {0};
+    static char strbuf2[32] = {0};
+    struct Foo foo = {
+        1.0, false
+    };
+
+    // write foo to out.json5
+    FILE *foo_out = fopen("out.json5", "w+");
+    fprintf(
+        foo_out,
+        "{\n"
+            "\tbar: %s,\n"
+            "\tbaz: %s\n"
+        "}",
+        Sucre_dblToStr(strbuf1, 32, foo.bar),
+        Sucre_boolToStr(strbuf2, 32, foo.baz)
+    );
+
+    rewind(foo_out);
+
+    // print serialized foo to stdout
+    char *foo_tmp = NULL;
+    Sucre_readEntireFile(&foo_tmp, foo_out);
+    printf("serialized foo:\n%s\n\n", foo_tmp);
+
+    free(foo_tmp);
+    fclose(foo_out);
+}
+
 int main(void)
 {
     Sucre_JsonVal v;
@@ -18,21 +49,7 @@ int main(void)
     Sucre_Error err;
     Sucre_JsonVal *v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
 
-    static char strbuf1[32] = {0};
-    static char strbuf2[32] = {0};
-    struct Foo foo = {
-        1.0, false
-    };
-
-    printf(
-        "serialized foo:\n"
-        "{\n"
-            "\tbar: %s,\n"
-            "\tbaz: %s\n"
-        "}\n\n",
-        Sucre_dblToStr(strbuf1, 32, foo.bar),
-        Sucre_boolToStr(strbuf2, 32, foo.baz)
-    );
+    serialize_test();
 
     printf("v: ");
     Sucre_printJsonVal(stdout, &v, true);

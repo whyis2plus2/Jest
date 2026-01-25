@@ -4,3 +4,4 @@ build/*
 *.o
 
 compile_flags.txt
+out.json5
