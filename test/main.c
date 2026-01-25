@@ -30,8 +30,6 @@ void serialize_test(void)
         Sucre_boolToStr(strbuf2, 32, foo.baz)
     );
 
-    rewind(foo_out);
-
     // print serialized foo to stdout
     char *foo_tmp = NULL;
     Sucre_readEntireFile(&foo_tmp, foo_out);
