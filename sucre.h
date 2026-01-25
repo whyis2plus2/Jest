@@ -33,8 +33,6 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 
-#include <math.h> // for signbit, isnan, isinf, INFINITY, NAN
-
 #define SUCRE_TODO(str) do {fprintf(stderr, "[%s:%d: %s] TODO: %s\n", __FILE__, __LINE__, __func__, str); exit(-1);} while (0)
 
 #ifndef SUCRE_H_
@@ -108,6 +106,13 @@ typedef struct Sucre_JsonVal {
     } v;
 } Sucre_JsonVal;
 
+double Sucre_nan(void);
+double Sucre_inf(void);
+
+bool Sucre_signbit(double x);
+bool Sucre_isnan(double x);
+bool Sucre_isinf(double x);
+
 char *Sucre_strndup(const char *str, size_t len);
 size_t Sucre_readEntireFileFromPath(char **out, const char *path);
 size_t Sucre_readEntireFile(char **out, FILE *file);
@@ -144,6 +149,37 @@ static Sucre_Error SucreInternal_parseObj(Sucre_JsonVal *out, Sucre_Lexer *lexer
 
 // Sucre_printJsonVal with prepended tabs
 static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, bool escape_unicode, int starttabs, int midtabs);
+
+double Sucre_nan(void)
+{
+    static const uint64_t x = UINT64_C(0x7ff8000000000001);
+    return *(double *)(void *)&x;
+}
+
+double Sucre_inf(void)
+{
+    static const uint64_t x = UINT64_C(0x7ff0000000000000);
+    return *(double *)(void *)&x;
+}
+
+bool Sucre_signbit(double x)
+{
+    return *(uint64_t *)(void *)&x >> 63;
+}
+
+bool Sucre_isnan(double x)
+{
+    const uint64_t bits = *(uint64_t *)(void *)&x;
+    // 0xffe0000000000000 (infinity's bits shifted by one so that the sign bit can be ignored)
+    return bits << 1 > UINT64_C(0xffe0000000000000);
+}
+
+bool Sucre_isinf(double x)
+{
+    const uint64_t bits = *(uint64_t *)(void *)&x;
+    // 0xffe0000000000000 (infinity's bits shifted by one so that the sign bit can be ignored)
+    return bits << 1 == UINT64_C(0xffe0000000000000);
+}
 
 char *Sucre_strndup(const char *str, size_t len)
 {
@@ -238,10 +274,10 @@ bool Sucre_lexerStep(Sucre_Lexer *l)
         l->ident_len = l->filebuf_offset - l->ident_start;
         if (!strncmp(&l->filebuf[l->ident_start], "Infinity", l->ident_len)) {
             l->type = SUCRE_LEXEME_NUM;
-            l->numval = INFINITY;
+            l->numval = Sucre_inf();
         } else if (!strncmp(&l->filebuf[l->ident_start], "NaN", l->ident_len)) {
             l->type = SUCRE_LEXEME_NUM;
-            l->numval = NAN;
+            l->numval = Sucre_nan();
         } else if (!strncmp(&l->filebuf[l->ident_start], "true", l->ident_len)) {
             l->type = SUCRE_LEXEME_BOOL;
             l->boolval = true;
@@ -816,14 +852,14 @@ static void SucreInternal_printJsonVal(FILE *file, const Sucre_JsonVal *val, boo
     return;
 
 lbl_print_num:
-    if (isinf(val->v.as_num)) {
-        if (signbit(val->v.as_num)) fputc('-', file);
+    if (Sucre_isinf(val->v.as_num)) {
+        if (Sucre_signbit(val->v.as_num)) fputc('-', file);
         fprintf(file, "%s", "Infinity");
         return;
     }
 
-    if (isnan(val->v.as_num)) {
-        if (signbit(val->v.as_num)) fputc('-', file);
+    if (Sucre_isnan(val->v.as_num)) {
+        if (Sucre_signbit(val->v.as_num)) fputc('-', file);
         fprintf(file, "%s", "NaN");
         return;
     }
