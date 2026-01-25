@@ -114,6 +114,8 @@ bool Sucre_isnan(double x);
 bool Sucre_isinf(double x);
 
 char *Sucre_strndup(const char *str, size_t len);
+char *Sucre_dblToStr(char *buffer, size_t bufsz, double x);
+char *Sucre_boolToStr(char *buffer, size_t bufsz, bool b);
 size_t Sucre_readEntireFileFromPath(char **out, const char *path);
 size_t Sucre_readEntireFile(char **out, FILE *file);
 bool Sucre_initLexer(Sucre_Lexer *l, char *strbuf, size_t strbuf_sz, const char *filebuf, size_t filebuf_sz);
@@ -190,6 +192,34 @@ char *Sucre_strndup(const char *str, size_t len)
 
     memcpy(ret, str, len);
     return ret;
+}
+
+char *Sucre_dblToStr(char *buffer, size_t bufsz, double x)
+{
+    if (!buffer || bufsz < 32) return NULL;
+
+    size_t start = 0;
+    if (Sucre_signbit(x)) buffer[start++] = '-';
+
+    if (Sucre_isinf(x)) {
+        strcpy(&buffer[start], "Infinity");
+        return buffer;
+    }
+
+    if (Sucre_isnan(x)) {
+        strcpy(&buffer[start], "NaN");
+        return buffer;
+    }
+
+    sprintf(buffer, "%.15g", x);
+    return buffer;
+}
+
+char *Sucre_boolToStr(char *buffer, size_t bufsz, bool b)
+{
+    if (!buffer || bufsz < 6) return NULL;
+    strcpy(buffer, (b)? "true" : "false");
+    return buffer;
 }
 
 size_t Sucre_readEntireFile(char **out, FILE *file)

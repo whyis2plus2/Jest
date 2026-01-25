@@ -5,6 +5,11 @@
 
 // TODO: implement parsing and not just lexing
 
+struct Foo {
+    double bar;
+    bool baz;
+};
+
 int main(void)
 {
     Sucre_JsonVal v;
@@ -12,6 +17,22 @@ int main(void)
 
     Sucre_Error err;
     Sucre_JsonVal *v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
+
+    static char strbuf1[32] = {0};
+    static char strbuf2[32] = {0};
+    struct Foo foo = {
+        1.0, false
+    };
+
+    printf(
+        "serialized foo:\n"
+        "{\n"
+            "\tbar: %s,\n"
+            "\tbaz: %s\n"
+        "}\n\n",
+        Sucre_dblToStr(strbuf1, 32, foo.bar),
+        Sucre_boolToStr(strbuf2, 32, foo.baz)
+    );
 
     printf("v: ");
     Sucre_printJsonVal(stdout, &v, true);
