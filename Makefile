@@ -1,7 +1,7 @@
 # on windows, use git bash
 
-CC := gcc
-LD := gcc
+CC := clang
+LD := clang
 
 CFLAGS += -std=c99 -pedantic-errors -g -O0
 CFLAGS += -Wall -Wextra -Wunused -Wformat=2
