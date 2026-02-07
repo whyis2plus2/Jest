@@ -10,30 +10,23 @@ struct Foo {
 
 void serialize_test(void)
 {
-    static char strbuf1[32] = {0};
-    static char strbuf2[32] = {0};
     struct Foo foo = {
-        1.0, false
+        -JEST_NAN, true
     };
 
     // write foo to out.json5
     FILE *foo_out = fopen("out.json5", "w+");
-    fprintf(
-        foo_out,
-        "{\n"
-            "\tbar: %s,\n"
-            "\tbaz: %s\n"
-        "}",
-        Jest_dblToStr(strbuf1, 32, foo.bar),
-        Jest_boolToStr(strbuf2, 32, foo.baz)
-    );
 
-    // print serialized foo to stdout
-    char *foo_tmp = NULL;
-    Jest_readEntireFile(&foo_tmp, foo_out);
-    printf("serialized foo:\n%s\n\n", foo_tmp);
+    Jest_JsonVal root = Jest_jsonObj();
+    Jest_jsonObjSet(&root, "bar", Jest_jsonNumber(foo.bar));
+    Jest_jsonObjSet(&root, "baz", Jest_jsonBool(foo.baz));
+    Jest_printJsonVal(foo_out, &root, true);
 
-    free(foo_tmp);
+    printf("serialized foo: ");
+    Jest_printJsonVal(stdout, &root, true);
+    printf("\n\n");
+
+    Jest_destroyJsonVal(&root);
     fclose(foo_out);
 }
 
@@ -45,11 +38,14 @@ int main(void)
     Jest_Error err;
     Jest_JsonVal *v2 = Jest_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
 
+    *v2 = Jest_jsonObj();
+    Jest_jsonObjSet(v2, "object creation!", Jest_jsonBool(true));
+
     serialize_test();
 
     printf("v: ");
     Jest_printJsonVal(stdout, &v, true);
-    printf("\nv2: ");
+    printf("\n\nv2: ");
     Jest_printJsonVal(stdout, v2, true);
     printf("\n\n");
 

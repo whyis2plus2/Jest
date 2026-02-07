@@ -138,7 +138,7 @@ bool Jest_initLexer(Jest_Lexer *l, char *strbuf, size_t strbuf_sz, const char *f
 bool Jest_lexerStep(Jest_Lexer *l);
 
 Jest_Error Jest_jsonArrayAppend(Jest_JsonVal *arr, const Jest_JsonVal *elem);
-Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, size_t name_len, const Jest_JsonVal *value);
+Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value);
 Jest_Error Jest_parseJsonLexer(Jest_JsonVal *out, Jest_Lexer *lexer);
 Jest_Error Jest_parseJsonFile(Jest_JsonVal *out, FILE *file);
 Jest_Error Jest_parseJsonFileFromPath(Jest_JsonVal *out, const char *path);
@@ -148,6 +148,54 @@ void Jest_printJsonVal(FILE *file, const Jest_JsonVal *val, bool escape_unicode)
 void Jest_destroyJsonVal(Jest_JsonVal *val);
 
 Jest_JsonVal *Jest_jsonIdx(Jest_JsonVal *parent, const char *accessor, Jest_Error *opt_err_out);
+
+static inline Jest_JsonVal Jest_jsonNull(void)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_NULL;
+    return out;
+}
+
+static inline Jest_JsonVal Jest_jsonBool(bool val)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_BOOL;
+    out.v.as_bool = val;
+    return out;
+}
+
+static inline Jest_JsonVal Jest_jsonNumber(double val)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_NUM;
+    out.v.as_num = val;
+    return out;
+}
+
+static inline Jest_JsonVal Jest_jsonString(const char *val)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_STR;
+    out.v.as_str.len = strlen(val);
+    out.v.as_str.data = Jest_strndup(val, out.v.as_str.len);
+    return out;
+}
+
+static inline Jest_JsonVal Jest_jsonArray(void)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_ARR;
+    memset(&out.v, 0, sizeof(out.v));
+    return out;
+}
+
+static inline Jest_JsonVal Jest_jsonObj(void)
+{
+    Jest_JsonVal out;
+    out.type = JEST_JSONTYPE_OBJ;
+    memset(&out.v, 0, sizeof(out.v));
+    return out;
+}
 
 #endif // !JEST_H_
 
@@ -356,15 +404,16 @@ Jest_Error Jest_jsonArrayAppend(Jest_JsonVal *arr, const Jest_JsonVal *elem)
     return JEST_ERROR_NONE;
 }
 
-Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, size_t name_len, const Jest_JsonVal *value)
+Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value)
 {
-    if (!obj || !field_name || !value) return JEST_ERROR_BADPARAM;
-    if (obj == value) return JEST_ERROR_BADPARAM;
+    if (!obj || !field_name) return JEST_ERROR_BADPARAM;
     if (obj->type != JEST_JSONTYPE_OBJ) return JEST_ERROR_BADPARAM;
+
+    const size_t name_len = strlen(field_name);
 
     for (size_t i = 0; i < obj->v.as_obj.nfields; ++i) {
         if (!strncmp(field_name, obj->v.as_obj.field_names[i], name_len)) {
-            memcpy(&obj->v.as_obj.field_values[i], value, sizeof(*value));
+            memcpy(&obj->v.as_obj.field_values[i], &value, sizeof(value));
             return JEST_ERROR_NONE;
         }
     }
@@ -380,7 +429,7 @@ Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, size_t nam
     obj->v.as_obj.fn_lens[obj->v.as_obj.nfields] = name_len;
     obj->v.as_obj.field_names[obj->v.as_obj.nfields] = Jest_strndup(field_name, name_len);
     if (!obj->v.as_obj.field_names[obj->v.as_obj.nfields]) return JEST_ERROR_NOMEM;
-    memcpy(&obj->v.as_obj.field_values[obj->v.as_obj.nfields], value, sizeof(*value));
+    memcpy(&obj->v.as_obj.field_values[obj->v.as_obj.nfields], &value, sizeof(value));
     ++obj->v.as_obj.nfields;
 
     return JEST_ERROR_NONE;
@@ -669,6 +718,7 @@ static Jest_Error Jest__lexerHandleStr(Jest_Lexer *l)
             l->filebuf_offset++;
             switch (l->filebuf[l->filebuf_offset]) {
                 case '\n':
+                case '\r':
                     while (isspace(l->filebuf[l->filebuf_offset + 1])) ++l->filebuf_offset;
                     break;
 
@@ -861,7 +911,7 @@ static Jest_Error Jest__parseObj(Jest_JsonVal *out, Jest_Lexer *lexer)
 
         Jest_JsonVal elem;
         Jest_parseJsonLexer(&elem, lexer);
-        Jest_jsonObjSet(out, name, name_len, &elem);
+        Jest_jsonObjSet(out, name, elem);
         free(name);
     } while (lexer->type == ',');
     if (lexer->type != '}') return JEST_ERROR_SYNTAX;
