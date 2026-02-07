@@ -55,7 +55,7 @@ int main(void)
 
     v2 = Jest_jsonIdx(&v, "['foo 🌿/'][bar][]", &err); // intentionally bad syntax
     if (!v2) { // v2 will be null because of the syntax error
-        printf("ERR: %d\n", (int)err); // print the erorr type (should be SUCRE_ERROR_SYNTAX (3))
+        printf("ERR: %d\n", (int)err); // print the erorr type (should be JEST_ERROR_SYNTAX (3))
     }
 
     Jest_destroyJsonVal(&v);
