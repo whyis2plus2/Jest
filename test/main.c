@@ -1,7 +1,7 @@
 #include <stdio.h>
 
-#define SUCRE_IMPL 1
-#include "../sucre.h"
+#define JEST_IMPL 1
+#include "../jest.h"
 
 // TODO: implement parsing and not just lexing
 
@@ -26,13 +26,13 @@ void serialize_test(void)
             "\tbar: %s,\n"
             "\tbaz: %s\n"
         "}",
-        Sucre_dblToStr(strbuf1, 32, foo.bar),
-        Sucre_boolToStr(strbuf2, 32, foo.baz)
+        Jest_dblToStr(strbuf1, 32, foo.bar),
+        Jest_boolToStr(strbuf2, 32, foo.baz)
     );
 
     // print serialized foo to stdout
     char *foo_tmp = NULL;
-    Sucre_readEntireFile(&foo_tmp, foo_out);
+    Jest_readEntireFile(&foo_tmp, foo_out);
     printf("serialized foo:\n%s\n\n", foo_tmp);
 
     free(foo_tmp);
@@ -41,25 +41,25 @@ void serialize_test(void)
 
 int main(void)
 {
-    Sucre_JsonVal v;
-    Sucre_parseJsonFileFromPath(&v, "test.json5");
+    Jest_JsonVal v;
+    Jest_parseJsonFileFromPath(&v, "test.json5");
 
-    Sucre_Error err;
-    Sucre_JsonVal *v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
+    Jest_Error err;
+    Jest_JsonVal *v2 = Jest_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
 
     serialize_test();
 
     printf("v: ");
-    Sucre_printJsonVal(stdout, &v, true);
+    Jest_printJsonVal(stdout, &v, true);
     printf("\nv2: ");
-    Sucre_printJsonVal(stdout, v2, true);
+    Jest_printJsonVal(stdout, v2, true);
     printf("\n\n");
 
-    v2 = Sucre_jsonIdx(&v, "['foo 🌿/'][bar][]", &err); // intentionally bad syntax
+    v2 = Jest_jsonIdx(&v, "['foo 🌿/'][bar][]", &err); // intentionally bad syntax
     if (!v2) { // v2 will be null because of the syntax error
         printf("ERR: %d\n", (int)err); // print the erorr type (should be SUCRE_ERROR_SYNTAX (3))
     }
 
-    Sucre_destroyJsonVal(&v);
+    Jest_destroyJsonVal(&v);
     return 0;
 }
