@@ -714,7 +714,7 @@ static Jest_Error Jest__lexerHandleStr(Jest_Lexer *l)
                         l->strbuf[l->strval_len++] = (char)(((codepoint >> 6)  & 0x3f) | 0x80);
                         l->strbuf[l->strval_len++] = (char)(((codepoint)       & 0x3f) | 0x80);
                     } else {
-                        JEST_TODO("handle the case where the codepoint is > 0x10FFFF (maybe unreachable?)");
+                        return JEST_ERROR_BADCHAR;
                     }
 
                     l->filebuf_offset += offset - 1;
