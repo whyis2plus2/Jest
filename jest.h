@@ -138,7 +138,7 @@ bool Jest_initLexer(Jest_Lexer *l, char *strbuf, size_t strbuf_sz, const char *f
 bool Jest_lexerStep(Jest_Lexer *l);
 
 Jest_Error Jest_jsonArrayAppend(Jest_JsonVal *arr, const Jest_JsonVal *elem);
-Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value);
+Jest_Error Jest_jsonObjAdd(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value);
 Jest_Error Jest_parseJsonLexer(Jest_JsonVal *out, Jest_Lexer *lexer);
 Jest_Error Jest_parseJsonFile(Jest_JsonVal *out, FILE *file);
 Jest_Error Jest_parseJsonFileFromPath(Jest_JsonVal *out, const char *path);
@@ -404,7 +404,7 @@ Jest_Error Jest_jsonArrayAppend(Jest_JsonVal *arr, const Jest_JsonVal *elem)
     return JEST_ERROR_NONE;
 }
 
-Jest_Error Jest_jsonObjSet(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value)
+Jest_Error Jest_jsonObjAdd(Jest_JsonVal *obj, const char *field_name, Jest_JsonVal value)
 {
     if (!obj || !field_name) return JEST_ERROR_BADPARAM;
     if (obj->type != JEST_JSONTYPE_OBJ) return JEST_ERROR_BADPARAM;
@@ -911,7 +911,7 @@ static Jest_Error Jest__parseObj(Jest_JsonVal *out, Jest_Lexer *lexer)
 
         Jest_JsonVal elem;
         Jest_parseJsonLexer(&elem, lexer);
-        Jest_jsonObjSet(out, name, elem);
+        Jest_jsonObjAdd(out, name, elem);
         free(name);
     } while (lexer->type == ',');
     if (lexer->type != '}') return JEST_ERROR_SYNTAX;

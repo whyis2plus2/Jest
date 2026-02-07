@@ -18,8 +18,8 @@ void serialize_test(void)
     FILE *foo_out = fopen("out.json5", "w+");
 
     Jest_JsonVal root = Jest_jsonObj();
-    Jest_jsonObjSet(&root, "bar", Jest_jsonNumber(foo.bar));
-    Jest_jsonObjSet(&root, "baz", Jest_jsonBool(foo.baz));
+    Jest_jsonObjAdd(&root, "bar", Jest_jsonNumber(foo.bar));
+    Jest_jsonObjAdd(&root, "baz", Jest_jsonBool(foo.baz));
     Jest_printJsonVal(foo_out, &root, true);
 
     printf("serialized foo: ");
@@ -39,7 +39,7 @@ int main(void)
     Jest_JsonVal *v2 = Jest_jsonIdx(&v, "['foo 🌿/'][bar][0]", &err);
 
     *v2 = Jest_jsonObj();
-    Jest_jsonObjSet(v2, "object creation!", Jest_jsonBool(true));
+    Jest_jsonObjAdd(v2, "object creation!", Jest_jsonBool(true));
 
     serialize_test();
 
