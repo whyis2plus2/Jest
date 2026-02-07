@@ -37,6 +37,26 @@ OTHER DEALINGS IN THE SOFTWARE.
 #ifndef JEST_H_
 #define JEST_H_ 1
 
+#ifndef JEST_NAN
+#   ifdef NAN
+#       define JEST_NAN NAN
+#   elif defined(__GNUC__)
+#       define JEST_NAN __builtin_nanf("")
+#   else
+#       define JEST_NAN (0.0/0.0)
+#   endif
+#endif // !JEST_NAN
+
+#ifndef JEST_INF
+#   ifdef INF
+#       define JEST_INF INF
+#   elif defined(__GNUC__)
+#       define JEST_INF __builtin_inff()
+#   else
+#       define JEST_INF (1.0/0.0)
+#   endif
+#endif // !JEST_INF
+
 typedef int Jest_LexemeType;
 enum Jest_LexemeType {
     JEST_LEXEME_ERR = 256,
@@ -105,9 +125,6 @@ typedef struct Jest_JsonVal {
     } v;
 } Jest_JsonVal;
 
-double Jest_nan(void);
-double Jest_inf(void);
-
 bool Jest_signbit(double x);
 bool Jest_isnan(double x);
 bool Jest_isinf(double x);
@@ -150,18 +167,6 @@ static Jest_Error Jest__parseObj(Jest_JsonVal *out, Jest_Lexer *lexer);
 
 // Jest_printJsonVal with prepended tabs
 static void Jest__printJsonVal(FILE *file, const Jest_JsonVal *val, bool escape_unicode, int starttabs, int midtabs);
-
-double Jest_nan(void)
-{
-    static const uint64_t x = UINT64_C(0x7ff8000000000001);
-    return *(double *)(void *)&x;
-}
-
-double Jest_inf(void)
-{
-    static const uint64_t x = UINT64_C(0x7ff0000000000000);
-    return *(double *)(void *)&x;
-}
 
 bool Jest_signbit(double x)
 {
@@ -303,10 +308,10 @@ bool Jest_lexerStep(Jest_Lexer *l)
         l->ident_len = l->filebuf_offset - l->ident_start;
         if (!strncmp(&l->filebuf[l->ident_start], "Infinity", l->ident_len)) {
             l->type = JEST_LEXEME_NUM;
-            l->numval = Jest_inf();
+            l->numval = JEST_INF;
         } else if (!strncmp(&l->filebuf[l->ident_start], "NaN", l->ident_len)) {
             l->type = JEST_LEXEME_NUM;
-            l->numval = Jest_nan();
+            l->numval = JEST_NAN;
         } else if (!strncmp(&l->filebuf[l->ident_start], "true", l->ident_len)) {
             l->type = JEST_LEXEME_BOOL;
             l->boolval = true;
@@ -663,7 +668,10 @@ static Jest_Error Jest__lexerHandleStr(Jest_Lexer *l)
         if (l->filebuf[l->filebuf_offset] == '\\') {
             l->filebuf_offset++;
             switch (l->filebuf[l->filebuf_offset]) {
-                case '\n': l->strbuf[l->strval_len++] = '\n'; break;
+                case '\n':
+                    while (isspace(l->filebuf[l->filebuf_offset + 1])) ++l->filebuf_offset;
+                    break;
+
                 case '\\': l->strbuf[l->strval_len++] = '\\'; break;
                 case '\'': l->strbuf[l->strval_len++] = '\''; break;
                 case '\"': l->strbuf[l->strval_len++] = '\"'; break;

@@ -7,7 +7,9 @@
     field: [null, Infinity, NaN, true, false, -.100],
     'field2\t': null,
     num: 1,
-    'foo 🌿/': {
-        "bar": [10.1,1,"string"]
-    }
+    'foo 🌿/' /* comments before : */ : /* comments after : */ { // comments after {
+        "bar": [10.1,1,'single-quoted string', "double-quoted string"]
+    },
+    "multiline string": "this \
+                         is supported!"
 }
