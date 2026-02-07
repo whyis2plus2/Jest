@@ -3,8 +3,6 @@
 #define JEST_IMPL 1
 #include "../jest.h"
 
-// TODO: implement parsing and not just lexing
-
 struct Foo {
     double bar;
     bool baz;
