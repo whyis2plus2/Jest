@@ -254,12 +254,14 @@ char *Jest_dblToStr(char *buffer, size_t bufsz, double x)
     if (Jest_signbit(x)) buffer[start++] = '-';
 
     if (Jest_isinf(x)) {
-        strcpy(&buffer[start], "Infinity");
+        // the size of the buffer is checked before strcpy is used so this is fine
+        strcpy(&buffer[start], "Infinity"); // NOLINT
         return buffer;
     }
 
     if (Jest_isnan(x)) {
-        strcpy(&buffer[start], "NaN");
+        // the size of the buffer is checked before strcpy is used so this is fine
+        strcpy(&buffer[start], "NaN"); // NOLINT
         return buffer;
     }
 
@@ -270,7 +272,8 @@ char *Jest_dblToStr(char *buffer, size_t bufsz, double x)
 char *Jest_boolToStr(char *buffer, size_t bufsz, bool b)
 {
     if (!buffer || bufsz < 6) return NULL;
-    strcpy(buffer, (b)? "true" : "false");
+    // the size of the buffer is checked before strcpy is used so this is fine
+    strcpy(buffer, (b)? "true" : "false"); // NOLINT
     return buffer;
 }
 
@@ -281,8 +284,9 @@ size_t Jest_readEntireFile(char **out, FILE *file)
     fseek(file, 0, SEEK_END);
     long fsize = ftell(file);
     fseek(file, 0, SEEK_SET);
+    if (!fsize) return 0;
 
-    *out = (char *)calloc(fsize + 1, 1);
+    *out = (char *)calloc(fsize + 1, 1); // NOLINT
     if (!*out) return 0;
 
     fread(*out, 1, fsize, file);
