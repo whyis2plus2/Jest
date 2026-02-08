@@ -253,17 +253,18 @@ char *Jest_dblToStr(char *buffer, size_t bufsz, double x)
     size_t start = 0;
     if (Jest_signbit(x)) buffer[start++] = '-';
 
+    // the size of the buffer is checked before strcpy is used so this is fine
+    // NOLINTBEGIN(clang-analyzer-security.insecureAPI.strcpy)
     if (Jest_isinf(x)) {
-        // the size of the buffer is checked before strcpy is used so this is fine
-        strcpy(&buffer[start], "Infinity"); // NOLINT
+        strcpy(&buffer[start], "Infinity");
         return buffer;
     }
 
     if (Jest_isnan(x)) {
-        // the size of the buffer is checked before strcpy is used so this is fine
-        strcpy(&buffer[start], "NaN"); // NOLINT
+        strcpy(&buffer[start], "NaN");
         return buffer;
     }
+    // NOLINTEND(clang-analyzer-security.insecureAPI.strcpy)
 
     sprintf(buffer, "%.15g", x);
     return buffer;
@@ -273,7 +274,8 @@ char *Jest_boolToStr(char *buffer, size_t bufsz, bool b)
 {
     if (!buffer || bufsz < 6) return NULL;
     // the size of the buffer is checked before strcpy is used so this is fine
-    strcpy(buffer, (b)? "true" : "false"); // NOLINT
+    // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.strcpy)
+    strcpy(buffer, (b)? "true" : "false");
     return buffer;
 }
 
@@ -286,7 +288,9 @@ size_t Jest_readEntireFile(char **out, FILE *file)
     fseek(file, 0, SEEK_SET);
     if (!fsize) return 0;
 
-    *out = (char *)calloc(fsize + 1, 1); // NOLINT
+    // I explicitly make sure that this has an allocation size of more than 0 bytes
+    // NOLINTNEXTLINE(clang-analyzer-optin.portability.UnixAPI)
+    *out = (char *)calloc(fsize + 1, 1);
     if (!*out) return 0;
 
     fread(*out, 1, fsize, file);
