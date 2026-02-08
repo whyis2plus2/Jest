@@ -463,6 +463,7 @@ Jest_Error Jest_parseJsonFile(Jest_JsonVal *out, FILE *file)
     size_t filebuf_sz = Jest_readEntireFile(&filebuf, file);
 
     if (!filebuf || !filebuf_sz) {
+        free(filebuf);
         free(strbuf);
         return JEST_ERROR_IO;
     }
@@ -906,7 +907,11 @@ static Jest_Error Jest__parseObj(Jest_JsonVal *out, Jest_Lexer *lexer)
         if (!name) return JEST_ERROR_NOMEM;
 
         Jest_lexerStep(lexer);
-        if (lexer->type != ':') return JEST_ERROR_SYNTAX;
+        if (lexer->type != ':') {
+            free(name);
+            return JEST_ERROR_SYNTAX;
+        }
+
         Jest_lexerStep(lexer);
 
         Jest_JsonVal elem;

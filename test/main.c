@@ -16,6 +16,7 @@ void serialize_test(void)
 
     // write foo to out.json5
     FILE *foo_out = fopen("out.json5", "w+");
+    if (!foo_out) return;
 
     Jest_JsonVal root = Jest_jsonObj();
     Jest_jsonObjAdd(&root, "bar", Jest_jsonNumber(foo.bar));
