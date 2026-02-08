@@ -58,7 +58,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 #endif // !JEST_INF
 
 typedef int Jest_LexemeType;
-enum Jest_LexemeType {
+enum Jest__LexemeType {
     JEST_LEXEME_ERR = 256,
     JEST_LEXEME_IDENT,
     JEST_LEXEME_NULL,
@@ -282,7 +282,7 @@ size_t Jest_readEntireFile(char **out, FILE *file)
     long fsize = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    *out = calloc(fsize + 1, 1);
+    *out = (char *)calloc(fsize + 1, 1);
     if (!*out) return 0;
 
     fread(*out, 1, fsize, file);
@@ -456,7 +456,7 @@ Jest_Error Jest_parseJsonFile(Jest_JsonVal *out, FILE *file)
 {
     if (!out || !file) return JEST_ERROR_BADPARAM;
 
-    char *strbuf = calloc(1024, 1);
+    char *strbuf = (char *)calloc(1024, 1);
     if (!strbuf) return JEST_ERROR_NOMEM;
 
     char *filebuf = NULL;
@@ -483,10 +483,10 @@ Jest_Error Jest_parseJsonFile(Jest_JsonVal *out, FILE *file)
 
 Jest_Error Jest_parseJsonFileFromPath(Jest_JsonVal *out, const char *path)
 {
-    if (!out || !path) return 0; 
+    if (!out || !path) return JEST_ERROR_BADPARAM; 
 
     FILE *f = fopen(path, "r");
-    if (!f) return 0;
+    if (!f) return JEST_ERROR_IO;
 
     const Jest_Error ret = Jest_parseJsonFile(out, f);
     fclose(f);
@@ -560,7 +560,7 @@ Jest_JsonVal *Jest_jsonIdx(Jest_JsonVal *parent, const char *accessor, Jest_Erro
     }
 
     Jest_Lexer lexer;
-    char *strbuf = malloc(1024);
+    char *strbuf = (char *)malloc(1024);
     if (!strbuf) {
         if (opt_err_out) *opt_err_out = JEST_ERROR_NOMEM;
         return NULL;
