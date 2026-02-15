@@ -62,6 +62,7 @@ int main(void)
 #endif
 
 #include <assert.h>
+#include <limits.h>
 
 int main(void)
 {
@@ -75,6 +76,7 @@ int main(void)
     *y = 250;
 
     assert(*x == INT_MAX && *y == 250);
+    jest_arena_destroy(arena);
 
     return 0;
 }
