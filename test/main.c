@@ -3,6 +3,7 @@
 #define JEST_IMPL 1
 #include "../jest.h"
 
+#if 0
 struct Foo {
     double bar;
     bool baz;
@@ -57,4 +58,11 @@ int main(void)
 
     Jest_destroyJsonVal(&v);
     return 0;
+}
+#endif
+
+int main(void)
+{
+    int x = Jest_isnan(-JEST_NAN);
+    printf("x: %d\n", x);
 }
