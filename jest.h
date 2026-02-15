@@ -4,13 +4,38 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if defined(__clang__) || defined(__GNUC__)
 #   define jest__gnuc_attribute(x) __attribute__(x)
+#   define jest__trap() __builtin_trap()
 #else
 #   define jest__gnuc_attribute(x)
+#   define jest__trap() abort()
 #endif
+
+#define JEST_PANIC() \
+do { \
+    fprintf(stderr, "[%s:%d] panic!\n", __FILE__, __LINE__); \
+    jest__trap(); \
+} while (0)
+
+#define JEST_UNREACHABLE() \
+do { \
+    fprintf(stderr, "[%s:%d] JEST_UNREACHABLE() reached.\n", __FILE__, __LINE__); \
+    jest__trap(); \
+} while (0)
+
+#define JEST_TODO(msg) \
+do { \
+    fprintf(stderr, "[%s:%d] TODO: " msg "\n", __FILE__, __LINE__); \
+    jest__trap(); \
+} while (0)
+
+#define JEST_MIN(x, y) (((x) < (y))? (x) : (y))
+#define JEST_MAX(x, y) (((x) > (y))? (x) : (y))
 
 #if JEST_USE_MATH_H
     #include <math.h>
@@ -115,27 +140,115 @@ static int jest__isnan(double x)
 typedef struct jest_arenabucket_t {
     struct jest_arenabucket_t *next;
     size_t size;
-    size_t offset;
     char data[1 /* flexible array */];
 } jest_arenabucket_t;
 
 typedef struct {
     size_t default_bucket_size;
     jest_arenabucket_t *head;
-    jest_arenabucket_t *tail;
+    jest_arenabucket_t *current;
+    size_t offset;
 } jest_arena_t;
 
+jest__gnuc_attribute((__warn_unused_result__))
 jest_arena_t *jest_arena_create(size_t default_bucket_size);
+
 void jest_arena_destroy(jest_arena_t *arena);
 void jest_arena_reset(jest_arena_t *arena);
 
-jest__gnuc_attribute((__malloc__, __alloc_size__(2), __alloc_align__(3)))
+jest__gnuc_attribute((__warn_unused_result__))
 void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align);
 
-jest__gnuc_attribute((__malloc__, __alloc_size__(2)))
+jest__gnuc_attribute((__warn_unused_result__))
 void *jest_arena_alloc(jest_arena_t *arena, size_t size);
 
 #endif // !JEST_H_
 
 #ifdef JEST_IMPL
+
+static jest_arenabucket_t *jest__arena_alloc_bucket(size_t size)
+{
+    jest_arenabucket_t *ret = (jest_arenabucket_t *)malloc(sizeof(*ret) + size - 1);
+    if (!ret) JEST_PANIC();
+
+    ret->size = size;
+    ret->next = NULL;
+
+    return ret;
+}
+
+static void jest__arena_next(jest_arena_t *arena, size_t min_size)
+{
+    if (!arena) return;
+
+    arena->offset = 0;
+    if (!arena->head || !arena->current) {
+        arena->head = arena->current = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
+        return;
+    }
+
+    jest_arenabucket_t *next = arena->head->next;
+    while (next) {
+        arena->current = next;
+        next = next->next;
+        if (arena->current->size - arena->offset >= min_size) {
+            return;
+        }
+    }
+
+    arena->current->next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
+    arena->current = arena->current->next;
+    return;
+}
+
+jest_arena_t *jest_arena_create(size_t default_bucket_size)
+{
+    jest_arena_t *ret = (jest_arena_t *)malloc(sizeof(*ret));
+    if (!ret) JEST_PANIC();
+
+    ret->default_bucket_size = default_bucket_size;
+    ret->head = ret->current = NULL;
+    return ret;
+}
+
+void jest_arena_destroy(jest_arena_t *arena)
+{
+    if (!arena) return;
+
+    jest_arenabucket_t *next = arena->head->next;
+    while (arena->head) {
+        free(arena->head);
+        arena->head = next;
+        if (next) next = next->next;
+    }
+
+    free(arena);
+}
+
+void jest_arena_reset(jest_arena_t *arena)
+{
+    arena->current = arena->head;
+}
+
+void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align)
+{
+    if (!arena || !size || !align) return NULL;
+    if (!arena->current) jest__arena_next(arena, size + align - 1);
+
+    const uintptr_t current = (uintptr_t)(arena->current->data + arena->offset);
+    const uintptr_t mask    = (uintptr_t)(align - 1);
+    const uintptr_t padding = ((current & mask) == current)? 0 : align - (current & mask);
+    
+    if (size + padding > arena->current->size - arena->offset) jest__arena_next(arena, size);
+
+    void *ret = arena->current->data + arena->offset + padding;
+    arena->offset += size + padding;
+    return ret;
+}
+
+void *jest_arena_alloc(jest_arena_t *arena, size_t size)
+{
+    return jest_arena_alloc_aligned(arena, size, 2 * sizeof(void *));
+}
+
 #endif // JEST_IMPL

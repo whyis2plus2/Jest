@@ -61,8 +61,20 @@ int main(void)
 }
 #endif
 
+#include <assert.h>
+
 int main(void)
 {
-    int x = Jest_isnan(-JEST_NAN);
-    printf("x: %d\n", x);
+    jest_arena_t *arena = jest_arena_create(65536);
+    if (!arena) return 1;
+
+    int *x = jest_arena_alloc_aligned(arena, 4, 4);
+    int *y = jest_arena_alloc_aligned(arena, 4, 4);
+
+    *x = INT_MAX;
+    *y = 250;
+
+    assert(*x == INT_MAX && *y == 250);
+
+    return 0;
 }
