@@ -92,6 +92,8 @@ int main(void)
         jestw_newline(arena, &writer); // extra newlines can be added to make the resulting file more readable
         jestw_comment(arena, &writer, JEST_STR("strings are escaped"));
         jestw_string(arena, &writer, JEST_STR("in both key names \U0001f33f"), JEST_STR("and values \U0001f340"));
+        jestw_string(arena, &writer, JEST_STR("invalid encodings get reduced to raw bytes"), JEST_STR("\\xf0\\xd0 -> \xf0\xd0"));
+        jestw_string(arena, &writer, JEST_STR("overlong encodings count as invalid encodings"), JEST_STR("\\u0000 as a 4-byte overlong becomes \xf0\x80\x80\x80"));
         jestw_newline(arena, &writer);
         jestw_comment(arena, &writer, JEST_STR("serialize array"));
         jestw_begin_array(arena, &writer, JEST_STR("array!"));

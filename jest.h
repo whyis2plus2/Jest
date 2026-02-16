@@ -1,6 +1,7 @@
 #ifndef JEST_H_
 #define JEST_H_
 
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -223,6 +224,40 @@ static int jest__isnan(double x)
 
 #ifdef JEST_IMPL
 
+typedef struct { bool valid; int len; uint32_t value; } jest__utf8_codepoint_info;
+static jest__utf8_codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequence, size_t max_len)
+{
+    if (!utf8_sequence || !max_len) goto lbl_invalid;
+
+    int len = 0;
+    if      (max_len >= 1 && (uint8_t)utf8_sequence[0] < 0x80)           len = 1;
+    else if (max_len >= 2 && ((uint8_t)utf8_sequence[0] & 0xf0)  < 0xe0) len = 2;
+    else if (max_len >= 3 && ((uint8_t)utf8_sequence[0] & 0xf0)  < 0xf0) len = 3;
+    else if (max_len >= 4 && ((uint8_t)utf8_sequence[0] & 0xf0) == 0xf0) len = 4;
+    else goto lbl_invalid;
+
+    uint32_t codepoint = (len == 1)? (uint32_t)utf8_sequence[0] :
+                         (len == 2)? ((uint32_t)utf8_sequence[0] & 0x1f) :
+                         (len == 3)? ((uint32_t)utf8_sequence[0] & 0x0f) : ((uint32_t)utf8_sequence[0] & 0x07);
+
+    for (int i = 1; i < len; ++i) {
+        codepoint <<= 6;
+        codepoint += (uint8_t)utf8_sequence[i] & 0x3f;
+        if (((uint8_t)utf8_sequence[i] & 0xf0) >= 0xc0) goto lbl_invalid;
+        if (!((uint8_t)utf8_sequence[i] & 0xf0)) goto lbl_invalid;
+    }
+
+    // handle overlong encodings
+    if (len == 2 && codepoint < 0x80)    goto lbl_invalid;
+    if (len == 3 && codepoint < 0x800)   goto lbl_invalid;
+    if (len == 4 && codepoint < 0x10000) goto lbl_invalid;
+
+    return JEST_LITERAL(jest__utf8_codepoint_info) {true, len, codepoint};
+
+lbl_invalid:
+    return JEST_LITERAL(jest__utf8_codepoint_info) {false, 1, 0xfffd};
+}
+
 static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str)
 {
     if (!arena || jest_is_str_null(str)) return JEST_STR_NULL;
@@ -230,60 +265,6 @@ static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str)
     jest_sb_t sb = jest_sb_create(arena, str.len * 2);
 
     for (size_t i = 0; i < str.len; ++i) {
-        if ((uint8_t)str.data[i] > 0x7f) {
-            uint32_t codepoint = 0;
-            if ((((uint8_t)str.data[i]) & 0xf0) < 0xc0) { // continuation char
-                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
-            } else if ((((uint8_t)str.data[i]) & 0xf0) < 0xe0) {
-                if (str.len - i < 2) {
-                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
-                    continue;
-                }
-                
-                codepoint += ((uint8_t)str.data[i++] & 0x1f) << 6;
-                codepoint += ((uint8_t)str.data[i]   & 0x3f);
-                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "\n", codepoint));
-            } else if ((((uint8_t)str.data[i]) & 0xf0) < 0xf0) {
-                if (str.len - i < 3) {
-                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
-                    continue;
-                }
-                
-                codepoint += ((uint8_t)str.data[i++] & 0x0f) << 12;
-                codepoint += ((uint8_t)str.data[i++] & 0x3f) <<  6;
-                codepoint += ((uint8_t)str.data[i]   & 0x3f);
-                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "\n", codepoint));
-            } else {
-                if (str.len - i < 4) {
-                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
-                    continue;
-                }
-                
-                codepoint += ((uint8_t)str.data[i++] & 0x07) << 18;
-                codepoint += ((uint8_t)str.data[i++] & 0x3f) << 12;
-                codepoint += ((uint8_t)str.data[i++] & 0x3f) <<  6;
-                codepoint += ((uint8_t)str.data[i]   & 0x3f);
-
-                if (codepoint < 0x10000) { // overlong encoding
-                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "", codepoint));
-                    continue;
-                }
-
-                if (codepoint > 0x10ffff) {
-                    i -= 3;
-                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
-                    continue;
-                }
-
-                codepoint -= 0x10000;
-                uint16_t hi = (codepoint >> 10)   + 0xd800;
-                uint16_t lo = (codepoint & 0x3ff) + 0xdc00;
-                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx16 "\\u%4" PRIx16 "", hi, lo));
-            }
-
-            continue;
-        }
-
         switch (str.data[i]) {
             case '\'': jest_sb_append(arena, &sb, JEST_STR("\\\"")); continue;
             case '"':  jest_sb_append(arena, &sb, JEST_STR("\\'"));  continue;
@@ -296,6 +277,29 @@ static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str)
             case '\v': jest_sb_append(arena, &sb, JEST_STR("\\v"));  continue;
             case '\0': jest_sb_append(arena, &sb, JEST_STR("\\0"));  continue;
             default: break;
+        }
+
+        jest__utf8_codepoint_info info = jest__utf8_to_codepoint_info(&str.data[i], str.len - 1);
+        if (info.value > 0x7f || iscntrl(str.data[i]) || !isprint(str.data[i])) {
+            if (!info.valid || info.value <= 0xff) {
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\x%.2" PRIx8 "", (uint8_t)str.data[i]));
+                i += info.len - 1;
+                continue;
+            }
+
+            if (info.value <= 0xffff) {
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%.4" PRIx32 "", info.value));
+                i += info.len - 1;
+                continue;
+            }
+
+            info.value -= 0x10000;
+            uint16_t hi = (info.value >> 10) + 0xd800;
+            uint16_t lo = (info.value & 0x3ff) + 0xdc00;
+
+            jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%.4" PRIx16 "\\u%.4" PRIx16 "", hi, lo));
+            i += info.len - 1;
+            continue;
         }
 
         jest_sb_append(arena, &sb, jest_fstr(arena, "%c", str.data[i]));
