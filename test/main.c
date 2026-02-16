@@ -84,7 +84,7 @@ int main(void)
 
     jest_writer_t writer = jest_writer_create(arena);
     
-    jestw_begin_object(arena, &writer, JEST_STR_NULL);
+    jestw_begin_object(arena, &writer, JESTW_NO_KEY);
         jestw_comment(arena, &writer, JEST_STR("comments are allowed to be serialized!"));
         jestw_null(arena, &writer, JEST_STR("null"));
         jestw_f64(arena, &writer, JEST_STR("key1"), -JEST_INFINITY);
@@ -98,18 +98,16 @@ int main(void)
         jestw_comment(arena, &writer, JEST_STR("serialize array"));
         jestw_begin_array(arena, &writer, JEST_STR("array!"));
             jestw_comment(arena, &writer, JEST_STR("this string came from the string builder `sb` in main"));
-            jestw_string(arena, &writer, JEST_STR_NULL, sb.buffer);
-            jestw_string(arena, &writer, JEST_STR_NULL, JEST_STR("string1"));
-            jestw_bool(arena, &writer, JEST_STR_NULL, true);
-            jestw_bool(arena, &writer, JEST_STR_NULL, false);
+            jestw_string(arena, &writer, JESTW_NO_KEY, sb.buffer);
+            jestw_string(arena, &writer, JESTW_NO_KEY, JEST_STR("string1"));
+            jestw_bool(arena, &writer, JESTW_NO_KEY, true);
+            jestw_bool(arena, &writer, JESTW_NO_KEY, false);
         jestw_end_array(arena, &writer);
         jestw_newline(arena, &writer);
-        jestw_comment(arena, &writer, JEST_STR("jest also supports serialization of multiple numeric types"));
+        jestw_comment(arena, &writer, JEST_STR("jest also supports serialization of integer types"));
         jestw_begin_object(arena, &writer, JEST_STR("datatypes"));
-            jestw_u32(arena, &writer, JEST_STR("uint32"), UINT32_MAX);
-            jestw_i32(arena, &writer, JEST_STR("int32"),  INT32_MIN);
-            jestw_u64(arena, &writer, JEST_STR("uint64"), UINT64_MAX);
-            jestw_i64(arena, &writer, JEST_STR("int64"),  INT64_MIN);
+            jestw_uint(arena, &writer, JEST_STR("uint"), UINT64_MAX);
+            jestw_int(arena, &writer, JEST_STR("int"),  INT64_MIN);
         jestw_end_object(arena, &writer);
     jestw_end_object(arena, &writer);
     jestw_write(&writer, "./out.json5");

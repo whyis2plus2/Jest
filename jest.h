@@ -78,6 +78,7 @@ do { \
 
 #define JEST_STR(s) JEST_LITERAL(jest_string_t) {sizeof("" s "") - 1, "" s ""}
 #define JEST_STR_NULL JEST_LITERAL(jest_string_t) {0, NULL}
+#define JESTW_NO_KEY  JEST_STR_NULL
 typedef struct { size_t len; char *data; } jest_string_t;
 typedef struct {
     size_t cap; 
@@ -196,10 +197,8 @@ enum jest_writer_error jestw_begin_array(jest_arena_t *arena, jest_writer_t *wri
 enum jest_writer_error jestw_end_array(jest_arena_t *arena, jest_writer_t *writer);
 enum jest_writer_error jestw_null(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
 enum jest_writer_error jestw_bool(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, bool val);
-enum jest_writer_error jestw_u32(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uint32_t val);
-enum jest_writer_error jestw_i32(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, int32_t val);
-enum jest_writer_error jestw_u64(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uint64_t val);
-enum jest_writer_error jestw_i64(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, int64_t val);
+enum jest_writer_error jestw_uint(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uintmax_t val);
+enum jest_writer_error jestw_int(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, intmax_t val);
 enum jest_writer_error jestw_f32(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, float val);
 enum jest_writer_error jestw_f64(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, double val);
 enum jest_writer_error jestw_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, jest_string_t val);
@@ -618,7 +617,7 @@ enum jest_writer_error jestw_bool(jest_arena_t *arena, jest_writer_t *writer, je
     return JEST_WRITER_SUCCESS;
 }
 
-enum jest_writer_error jestw_u32(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uint32_t val)
+enum jest_writer_error jestw_uint(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uintmax_t val)
 {
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
@@ -632,13 +631,13 @@ enum jest_writer_error jestw_u32(jest_arena_t *arena, jest_writer_t *writer, jes
         return JEST_WRITER_SUCCESS;
     }
 
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%" PRIu32 "", val));
+    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%ju", val));
     jest__writer_comma(arena, writer);
     jestw_newline(arena, writer);
     return JEST_WRITER_SUCCESS;
 }
 
-enum jest_writer_error jestw_i32(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, int32_t val)
+enum jest_writer_error jestw_int(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, intmax_t val)
 {
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
@@ -652,47 +651,7 @@ enum jest_writer_error jestw_i32(jest_arena_t *arena, jest_writer_t *writer, jes
         return JEST_WRITER_SUCCESS;
     }
 
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%" PRId32 "", val));
-    jest__writer_comma(arena, writer);
-    jestw_newline(arena, writer);
-    return JEST_WRITER_SUCCESS;
-}
-
-enum jest_writer_error jestw_u64(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uint64_t val)
-{
-    if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
-    for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
-
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    if (jest_isinf(val) || jest_isnan(val)) {
-        if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
-        jest__writer_comma(arena, writer);
-        jestw_newline(arena, writer);
-        return JEST_WRITER_SUCCESS;
-    }
-
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%" PRIu64 "", val));
-    jest__writer_comma(arena, writer);
-    jestw_newline(arena, writer);
-    return JEST_WRITER_SUCCESS;
-}
-
-enum jest_writer_error jestw_i64(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, int64_t val)
-{
-    if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
-    for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
-
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    if (jest_isinf(val) || jest_isnan(val)) {
-        if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
-        jest__writer_comma(arena, writer);
-        jestw_newline(arena, writer);
-        return JEST_WRITER_SUCCESS;
-    }
-
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%" PRId64 "", val));
+    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%jd", val));
     jest__writer_comma(arena, writer);
     jestw_newline(arena, writer);
     return JEST_WRITER_SUCCESS;
