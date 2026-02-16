@@ -84,25 +84,33 @@ int main(void)
 
     jest_writer_t writer = jest_writer_create(arena);
     
-    jestw_begin_obejct(arena, &writer, JEST_STR_NULL);
+    jestw_begin_object(arena, &writer, JEST_STR_NULL);
         jestw_comment(arena, &writer, JEST_STR("comments are allowed to be serialized!"));
         jestw_null(arena, &writer, JEST_STR("null"));
-        jestw_number(arena, &writer, JEST_STR("key1"), -JEST_INFINITY);
-        jestw_number(arena, &writer, JEST_STR("key2"), -JEST_NAN);
+        jestw_f64(arena, &writer, JEST_STR("key1"), -JEST_INFINITY);
+        jestw_f64(arena, &writer, JEST_STR("key2"), -JEST_NAN);
         jestw_newline(arena, &writer); // extra newlines can be added to make the resulting file more readable
         jestw_comment(arena, &writer, JEST_STR("strings are escaped"));
         jestw_string(arena, &writer, JEST_STR("in both key names \U0001f33f"), JEST_STR("and values \U0001f340"));
-        jestw_string(arena, &writer, JEST_STR("invalid encodings get reduced to raw bytes"), JEST_STR("\\xf0\\xd0 -> \xf0\xd0"));
-        jestw_string(arena, &writer, JEST_STR("overlong encodings count as invalid encodings"), JEST_STR("\\u0000 as a 4-byte overlong becomes \xf0\x80\x80\x80"));
+        jestw_string(arena, &writer, JEST_STR("invalid utf-8 gets reduced to raw bytes"), JEST_STR("\\xf0\\xd0 -> \xf0\xd0"));
+        jestw_string(arena, &writer, JEST_STR("overlong encodings count as invalid utf-8"), JEST_STR("\\u0000 as a 4-byte overlong becomes \xf0\x80\x80\x80"));
         jestw_newline(arena, &writer);
         jestw_comment(arena, &writer, JEST_STR("serialize array"));
         jestw_begin_array(arena, &writer, JEST_STR("array!"));
             jestw_comment(arena, &writer, JEST_STR("this string came from the string builder `sb` in main"));
             jestw_string(arena, &writer, JEST_STR_NULL, sb.buffer);
             jestw_string(arena, &writer, JEST_STR_NULL, JEST_STR("string1"));
-            jestw_boolean(arena, &writer, JEST_STR_NULL, true);
-            jestw_boolean(arena, &writer, JEST_STR_NULL, false);
+            jestw_bool(arena, &writer, JEST_STR_NULL, true);
+            jestw_bool(arena, &writer, JEST_STR_NULL, false);
         jestw_end_array(arena, &writer);
+        jestw_newline(arena, &writer);
+        jestw_comment(arena, &writer, JEST_STR("jest also supports serialization of multiple numeric types"));
+        jestw_begin_object(arena, &writer, JEST_STR("datatypes"));
+            jestw_u32(arena, &writer, JEST_STR("uint32"), UINT32_MAX);
+            jestw_i32(arena, &writer, JEST_STR("int32"),  INT32_MIN);
+            jestw_u64(arena, &writer, JEST_STR("uint64"), UINT64_MAX);
+            jestw_i64(arena, &writer, JEST_STR("int64"),  INT64_MIN);
+        jestw_end_object(arena, &writer);
     jestw_end_object(arena, &writer);
     jestw_write(&writer, "./out.json5");
 
