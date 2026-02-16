@@ -335,14 +335,13 @@ static void jest__arena_next(jest_arena_t *arena, size_t min_size)
     }
 
     next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
-    if (arena->current) {
-        arena->current->next = next;
-        arena->current = next;
-    } else {
+    if (!arena->current) {
         arena->head = arena->current = next;
+        return;
     }
 
-    return;
+    arena->current->next = next;
+    arena->current = next;
 }
 
 jest_arena_t *jest_arena_create(size_t default_bucket_size)
