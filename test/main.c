@@ -69,8 +69,8 @@ int main(void)
     jest_arena_t *arena = jest_arena_create(65536);
     if (!arena) return 1;
 
-    int *x = jest_arena_alloc_aligned(arena, 4, 4);
-    int *y = jest_arena_alloc_aligned(arena, 4, 4);
+    int *x = (int *)jest_arena_alloc_aligned(arena, 4, 4);
+    int *y = (int *)jest_arena_alloc_aligned(arena, 4, 4);
 
     jest_sb_t sb = jest_sb_create(arena, 256);
     jest_sb_append(arena, &sb, JEST_STR("test string"));
@@ -111,6 +111,9 @@ int main(void)
         jestw_end_object(arena, &writer);
     jestw_end_object(arena, &writer);
     jestw_write(&writer, "./out.json5");
+
+    jest_string_t str = jest__unescape_string(arena, JEST_STR("\\ud83c\\udf3f \\\ntest"));
+    printf("str: '%s'\n", str.data);
 
     jest_arena_destroy(arena);
     return 0;
