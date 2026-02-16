@@ -151,6 +151,7 @@ enum jest_writer_error {
 
 typedef struct {
     jest_sb_t data;
+    size_t idx_last_comma; // index of last comma, used to remove trailing commas
     size_t scope_stack_cap;
     size_t scope_stack_len;
     enum jest_scope_type *scope_stack;
@@ -324,12 +325,7 @@ static void jest__arena_next(jest_arena_t *arena, size_t min_size)
     if (!arena) return;
 
     arena->offset = 0;
-    if (!arena->head || !arena->current) {
-        arena->head = arena->current = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
-        return;
-    }
-
-    jest_arena_bucket_t *next = arena->head->next;
+    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
     while (next) {
         arena->current = next;
         next = next->next;
@@ -338,9 +334,14 @@ static void jest__arena_next(jest_arena_t *arena, size_t min_size)
         }
     }
 
-    arena->current->next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
-    arena->current = arena->current->next;
-    arena->current->next = NULL;
+    next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
+    if (arena->current) {
+        arena->current->next = next;
+        arena->current = next;
+    } else {
+        arena->head = arena->current = next;
+    }
+
     return;
 }
 
@@ -359,7 +360,7 @@ void jest_arena_destroy(jest_arena_t *arena)
 {
     if (!arena) return;
 
-    jest_arena_bucket_t *next = arena->head->next;
+    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
     while (arena->head) {
         free(arena->head);
         arena->head = next;
@@ -372,6 +373,7 @@ void jest_arena_destroy(jest_arena_t *arena)
 void jest_arena_reset(jest_arena_t *arena)
 {
     arena->current = arena->head;
+    arena->offset = 0;
 }
 
 void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align)
@@ -381,8 +383,9 @@ void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align)
 
     const uintptr_t current = (uintptr_t)(arena->current->data + arena->offset);
     const uintptr_t mask    = (uintptr_t)(align - 1);
-    const uintptr_t padding = ((current & mask) == current)? 0 : align - (current & mask);
-    
+    const uintptr_t padding = (current & mask)? align - (current & mask) : 0;
+
+    // printf("arena->current->size - arena->offset = %zu\n", arena->current->size - arena->offset);
     if (size + padding > arena->current->size - arena->offset) jest__arena_next(arena, size);
     if (!arena->current) JEST_PANIC();
 
@@ -501,6 +504,13 @@ static enum jest_scope_type jest__writer_pop_scope(jest_writer_t *writer, enum j
     return writer->scope_stack[--writer->scope_stack_len];
 }
 
+static void jest__writer_comma(jest_arena_t *arena, jest_writer_t *writer)
+{
+    if (!writer->scope_stack_len) return;
+    writer->idx_last_comma = writer->data.buffer.len;
+    jest_sb_append(arena, &writer->data, JEST_STR(","));
+}
+
 jest_writer_t jest_writer_create(jest_arena_t *arena)
 {
     jest_writer_t ret;
@@ -530,10 +540,11 @@ enum jest_writer_error jestw_end_object(jest_arena_t *arena, jest_writer_t *writ
         return JEST_WRITER_ERR_MISMATCHED_SCOPE;
     }
 
+    writer->data.buffer.data[writer->idx_last_comma] = ' ';
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
     jest_sb_append(arena, &writer->data, JEST_STR("}"));
-    if (writer->scope_stack_len) jest_sb_append(arena, &writer->data, JEST_STR(","));
-    jest_sb_append(arena, &writer->data, JEST_STR("\n"));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
     return JEST_WRITER_SUCCESS;
 }
 
@@ -557,10 +568,11 @@ enum jest_writer_error jestw_end_array(jest_arena_t *arena, jest_writer_t *write
         return JEST_WRITER_ERR_MISMATCHED_SCOPE;
     }
 
+    writer->data.buffer.data[writer->idx_last_comma] = ' ';
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
     jest_sb_append(arena, &writer->data, JEST_STR("]"));
-    if (writer->scope_stack_len) jest_sb_append(arena, &writer->data, JEST_STR(","));
-    jest_sb_append(arena, &writer->data, JEST_STR("\n"));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
     return JEST_WRITER_SUCCESS;
 }
 
@@ -570,7 +582,9 @@ enum jest_writer_error jestw_null(jest_arena_t *arena, jest_writer_t *writer, je
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    jest_sb_append(arena, &writer->data, JEST_STR("null,\n"));
+    jest_sb_append(arena, &writer->data, JEST_STR("null"));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
 
     return JEST_WRITER_SUCCESS;
 }
@@ -581,7 +595,9 @@ enum jest_writer_error jestw_boolean(jest_arena_t *arena, jest_writer_t *writer,
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    jest_sb_append(arena, &writer->data, (val)? JEST_STR("true,\n") : JEST_STR("false,\n"));
+    jest_sb_append(arena, &writer->data, (val)? JEST_STR("true") : JEST_STR("false"));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
 
     return JEST_WRITER_SUCCESS;
 }
@@ -594,11 +610,15 @@ enum jest_writer_error jestw_number(jest_arena_t *arena, jest_writer_t *writer, 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     if (jest_isinf(val) || jest_isnan(val)) {
         if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity,\n") : JEST_STR("NaN,\n"));
+        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
+        jest__writer_comma(arena, writer);
+        jestw_newline(arena, writer);
         return JEST_WRITER_SUCCESS;
     }
 
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%.15g,\n", val));
+    jest_sb_append(arena, &writer->data, jest_fstr(arena, "%.15g", val));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
     return JEST_WRITER_SUCCESS;
 }
 
@@ -608,7 +628,9 @@ enum jest_writer_error jestw_string(jest_arena_t *arena, jest_writer_t *writer, 
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\",\n", jest__escape_string(arena, val).data));
+    jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\"", jest__escape_string(arena, val).data));
+    jest__writer_comma(arena, writer);
+    jestw_newline(arena, writer);
 
     return JEST_WRITER_SUCCESS;
 }
