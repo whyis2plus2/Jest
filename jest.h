@@ -223,6 +223,87 @@ static int jest__isnan(double x)
 
 #ifdef JEST_IMPL
 
+static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str)
+{
+    if (!arena || jest_is_str_null(str)) return JEST_STR_NULL;
+
+    jest_sb_t sb = jest_sb_create(arena, str.len * 2);
+
+    for (size_t i = 0; i < str.len; ++i) {
+        if ((uint8_t)str.data[i] > 0x7f) {
+            uint32_t codepoint = 0;
+            if ((((uint8_t)str.data[i]) & 0xf0) < 0xc0) { // continuation char
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
+            } else if ((((uint8_t)str.data[i]) & 0xf0) < 0xe0) {
+                if (str.len - i < 2) {
+                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
+                    continue;
+                }
+                
+                codepoint += ((uint8_t)str.data[i++] & 0x1f) << 6;
+                codepoint += ((uint8_t)str.data[i]   & 0x3f);
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "\n", codepoint));
+            } else if ((((uint8_t)str.data[i]) & 0xf0) < 0xf0) {
+                if (str.len - i < 3) {
+                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
+                    continue;
+                }
+                
+                codepoint += ((uint8_t)str.data[i++] & 0x0f) << 12;
+                codepoint += ((uint8_t)str.data[i++] & 0x3f) <<  6;
+                codepoint += ((uint8_t)str.data[i]   & 0x3f);
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "\n", codepoint));
+            } else {
+                if (str.len - i < 4) {
+                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
+                    continue;
+                }
+                
+                codepoint += ((uint8_t)str.data[i++] & 0x07) << 18;
+                codepoint += ((uint8_t)str.data[i++] & 0x3f) << 12;
+                codepoint += ((uint8_t)str.data[i++] & 0x3f) <<  6;
+                codepoint += ((uint8_t)str.data[i]   & 0x3f);
+
+                if (codepoint < 0x10000) { // overlong encoding
+                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx32 "", codepoint));
+                    continue;
+                }
+
+                if (codepoint > 0x10ffff) {
+                    i -= 3;
+                    jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx8 "\n", (uint8_t)str.data[i]));
+                    continue;
+                }
+
+                codepoint -= 0x10000;
+                uint16_t hi = (codepoint >> 10)   + 0xd800;
+                uint16_t lo = (codepoint & 0x3ff) + 0xdc00;
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\u%4" PRIx16 "\\u%4" PRIx16 "", hi, lo));
+            }
+
+            continue;
+        }
+
+        switch (str.data[i]) {
+            case '\'': jest_sb_append(arena, &sb, JEST_STR("\\\"")); continue;
+            case '"':  jest_sb_append(arena, &sb, JEST_STR("\\'"));  continue;
+            case '\\': jest_sb_append(arena, &sb, JEST_STR("\\\\")); continue;
+            case '\b': jest_sb_append(arena, &sb, JEST_STR("\\b"));  continue;
+            case '\f': jest_sb_append(arena, &sb, JEST_STR("\\f"));  continue;
+            case '\n': jest_sb_append(arena, &sb, JEST_STR("\\n"));  continue;
+            case '\r': jest_sb_append(arena, &sb, JEST_STR("\\r"));  continue;
+            case '\t': jest_sb_append(arena, &sb, JEST_STR("\\t"));  continue;
+            case '\v': jest_sb_append(arena, &sb, JEST_STR("\\v"));  continue;
+            case '\0': jest_sb_append(arena, &sb, JEST_STR("\\0"));  continue;
+            default: break;
+        }
+
+        jest_sb_append(arena, &sb, jest_fstr(arena, "%c", str.data[i]));
+    }
+
+    return sb.buffer;
+}
+
 static jest_arena_bucket_t *jest__arena_alloc_bucket(size_t size)
 {
     jest_arena_bucket_t *ret = (jest_arena_bucket_t *)malloc(sizeof(*ret) + size - 1);
@@ -315,7 +396,7 @@ void *jest_arena_alloc(jest_arena_t *arena, size_t size)
 jest_string_t jest_str(jest_arena_t *arena, const char *cstr)
 {
     if (!arena || !cstr) {
-        return JEST_LITERAL(jest_string_t) { 0, NULL };
+        return JEST_STR_NULL;
     }
 
     jest_string_t ret;
@@ -330,7 +411,7 @@ jest_string_t jest_str(jest_arena_t *arena, const char *cstr)
 jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...)
 {
     if (!arena || !fmt) {
-        return JEST_LITERAL(jest_string_t) {0, NULL};
+        return JEST_STR_NULL;
     }
 
     va_list args;
@@ -355,7 +436,7 @@ jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...)
 jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap)
 {
     if (!arena || !start_cap) {
-        return JEST_LITERAL(jest_sb_t) {0, {0, NULL}};
+        return JEST_LITERAL(jest_sb_t) {0, JEST_STR_NULL};
     }
 
     jest_sb_t ret;
@@ -430,7 +511,7 @@ enum jest_writer_error jestw_begin_obejct(jest_arena_t *arena, jest_writer_t *wr
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     jest__writer_push_scope(arena, writer, JEST_SCOPE_OBJ);
     jest_sb_append(arena, &writer->data, JEST_STR("{\n"));
 
@@ -457,7 +538,7 @@ enum jest_writer_error jestw_begin_array(jest_arena_t *arena, jest_writer_t *wri
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     jest__writer_push_scope(arena, writer, JEST_SCOPE_ARR);
     jest_sb_append(arena, &writer->data, JEST_STR("[\n"));
 
@@ -484,7 +565,7 @@ enum jest_writer_error jestw_null(jest_arena_t *arena, jest_writer_t *writer, je
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     jest_sb_append(arena, &writer->data, JEST_STR("null,\n"));
 
     return JEST_WRITER_SUCCESS;
@@ -495,7 +576,7 @@ enum jest_writer_error jestw_boolean(jest_arena_t *arena, jest_writer_t *writer,
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     jest_sb_append(arena, &writer->data, (val)? JEST_STR("true,\n") : JEST_STR("false,\n"));
 
     return JEST_WRITER_SUCCESS;
@@ -506,8 +587,7 @@ enum jest_writer_error jestw_number(jest_arena_t *arena, jest_writer_t *writer, 
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
-
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
     if (jest_isinf(val) || jest_isnan(val)) {
         if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
         jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity,\n") : JEST_STR("NaN,\n"));
@@ -523,9 +603,8 @@ enum jest_writer_error jestw_string(jest_arena_t *arena, jest_writer_t *writer, 
     if (!arena || !writer) return JEST_WRITER_ERR_BAD_PARAM;
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR(JEST_WRITER_TAB));
 
-    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", key.data));
-    JEST_TODO("make the resulting string escape special characters");
-    // jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\",\n", val.data));
+    if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
+    jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\",\n", jest__escape_string(arena, val).data));
 
     return JEST_WRITER_SUCCESS;
 }

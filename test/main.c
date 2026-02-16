@@ -90,6 +90,9 @@ int main(void)
         jestw_number(arena, &writer, JEST_STR("key1"), -JEST_INFINITY);
         jestw_number(arena, &writer, JEST_STR("key2"), -JEST_NAN);
         jestw_newline(arena, &writer); // extra newlines can be added to make the resulting file more readable
+        jestw_comment(arena, &writer, JEST_STR("strings are escaped"));
+        jestw_string(arena, &writer, JEST_STR("in both key names \U0001f33f"), JEST_STR("and values \U0001f340"));
+        jestw_newline(arena, &writer);
         jestw_comment(arena, &writer, JEST_STR("serialize array"));
         jestw_begin_array(arena, &writer, JEST_STR("array!"));
             jestw_comment(arena, &writer, JEST_STR("this string came from the string builder `sb` in main"));
