@@ -54,6 +54,10 @@ int main(void)
     jestw_end_object(arena, &writer);
     jestw_write(&writer, "./out.json5");
 
+    printf("./out.json5: ");
+    jestw_writef(&writer, stdout);
+    printf("\n");
+
     jest_string_t str = jest__unescape_string(arena, JEST_STR("\\ud83c\\udf3f \\\ntest"));
     printf("str: '%s'\n", str.data);
 

@@ -198,6 +198,7 @@ enum jest_writer_error jestw_kv_float(jest_arena_t *arena, jest_writer_t *writer
 enum jest_writer_error jestw_kv_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, jest_string_t val);
 enum jest_writer_error jestw_comment(jest_arena_t *arena, jest_writer_t *writer, jest_string_t text);
 enum jest_writer_error jestw_newline(jest_arena_t *arena, jest_writer_t *writer);
+enum jest_writer_error jestw_writef(const jest_writer_t *writer, FILE *file);
 enum jest_writer_error jestw_write(const jest_writer_t *writer, const char *path);
 
 extern inline enum jest_writer_error jestw_begin_object(jest_arena_t *arena, jest_writer_t *writer);
@@ -882,16 +883,24 @@ enum jest_writer_error jestw_newline(jest_arena_t *arena, jest_writer_t *writer)
     return JEST_WRITER_SUCCESS;
 }
 
+enum jest_writer_error jestw_writef(const jest_writer_t *writer, FILE *file)
+{
+    if (!writer || !file) return JEST_WRITER_ERR_BAD_PARAM;
+    if (writer->scope_stack_len) return JEST_WRITER_ERR_MISMATCHED_SCOPE;
+
+    fwrite(writer->data.buffer.data, 1, writer->data.buffer.len, file);
+    return JEST_WRITER_SUCCESS;
+}
+
 enum jest_writer_error jestw_write(const jest_writer_t *writer, const char *path)
 {
-    if (!path || !writer) return JEST_WRITER_ERR_BAD_PARAM;
+    if (!writer || !path) return JEST_WRITER_ERR_BAD_PARAM;
     FILE *file = fopen(path, "w");
     if (!file) return JEST_WRITER_ERR_IO_FAIL;
 
-    fwrite(writer->data.buffer.data, 1, writer->data.buffer.len, file);
-
+    const enum jest_writer_error err = jestw_writef(writer, file);
     fclose(file);
-    return JEST_WRITER_SUCCESS;
+    return err;
 }
 
 extern inline enum jest_writer_error jestw_begin_object(jest_arena_t *arena, jest_writer_t *writer)
