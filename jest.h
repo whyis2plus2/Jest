@@ -72,7 +72,6 @@ do { \
 #   define JEST_LITERAL(type) (type)
 #endif
 
-#define JEST_STR_SLICE(s, start, end) JEST_LITERAL(jest_string_t) {(end) - (start), (s).data + (start)}
 #define JEST_STR(s) JEST_LITERAL(jest_string_t) {sizeof("" s "") - 1, (char *)(void *)"" s ""}
 #define JEST_STR_NULL JEST_LITERAL(jest_string_t) {0, NULL}
 #define JESTW_NO_KEY  JEST_STR_NULL
