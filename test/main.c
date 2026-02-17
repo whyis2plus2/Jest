@@ -49,7 +49,7 @@ int main(void)
         jestw_comment(arena, &writer, JEST_STR("jest also supports serialization of integer types"));
         jestw_kv_begin_object(arena, &writer, JEST_STR("datatypes"));
             jestw_kv_uint(arena, &writer, JEST_STR("uint"), UINT64_MAX);
-            jestw_kv_int(arena, &writer, JEST_STR("int"),  INT64_MIN);
+            jestw_kv_int(arena, &writer, JEST_STR("int"), INT64_MIN);
         jestw_end_object(arena, &writer);
     jestw_end_object(arena, &writer);
     jestw_write(&writer, "./out.json5");

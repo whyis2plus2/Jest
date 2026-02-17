@@ -1,6 +1,13 @@
 #ifndef JEST_H_
 #define JEST_H_
 
+/* c/c++ version check */
+#if (defined(__cplusplus) && __cplusplus < 201103L)
+    # error C++11 or later is required
+#elif !defined(__STDC__) || (__STDC_VERSION__ < 199901L)
+    # error C99 or later is required
+#endif
+
 #include <ctype.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -67,7 +74,7 @@ do { \
 #endif // !JEST_INF
 
 #ifdef __cplusplus
-#   define JEST_LITERAL(type) type
+#   define JEST_LITERAL type
 #else
 #   define JEST_LITERAL(type) (type)
 #endif
