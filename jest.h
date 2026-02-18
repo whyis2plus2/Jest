@@ -1,11 +1,11 @@
 #ifndef JEST_H_
-#define JEST_H_
+#define JEST_H_ 1
 
 /* c/c++ version check */
-#if (defined(__cplusplus) && __cplusplus < 201103L)
-    # error C++11 or later is required
-#elif !defined(__STDC__) || (__STDC_VERSION__ < 199901L)
-    # error C99 or later is required
+#if defined(__cplusplus) && __cplusplus < 201103L
+#   error C++11 or later is required
+#elif !defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L
+#   error C99 or later is required
 #endif
 
 #include <ctype.h>
@@ -18,43 +18,44 @@
 #include <string.h>
 
 #if defined(__clang__) || defined(__GNUC__)
-#   define jest__gnuc_attribute(x) __attribute__(x)
-#   define jest__trap() __builtin_trap()
+#   define JEST_GNUC_ATTRIBUTE(x) __attribute__(x)
+#   define JEST_TRAP() __builtin_trap()
+#   define JEST_LIKELY(expr) __builtin_expect(!!(expr), 1)
 #else
-#   define jest__gnuc_attribute(x)
-#   define jest__trap() abort()
+#   define JEST_GNUC_ATTRIBUTE(x)
+#   define JEST_TRAP() abort()
+#   define JEST_LIKELY(expr) (expr)
 #endif
 
-#define JEST_PANIC() \
-do { \
-    fprintf(stderr, "[%s:%d] panic!\n", __FILE__, __LINE__); \
-    jest__trap(); \
-} while (0)
+#if JEST_NO_ASSERT
+#   define JEST_ASSERT(expr, ...)
+#else
+#   define JEST_ASSERT(expr, ...) \
+    do { \
+        if (JEST_LIKELY(expr)) break; \
+        fprintf(stderr, "[%s:%d: %s] Assertion failed: ", __FILE__, __LINE__, __func__); \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n"); \
+    } while (0)
+#endif
 
 #define JEST_UNREACHABLE() \
 do { \
-    fprintf(stderr, "[%s:%d] JEST_UNREACHABLE() reached.\n", __FILE__, __LINE__); \
-    jest__trap(); \
+    fprintf(stderr, "[%s:%d: %s] JEST_UNREACHABLE() reached.\n", __FILE__, __LINE__, __func__); \
+    JEST_TRAP(); \
 } while (0)
 
 #define JEST_TODO(msg) \
 do { \
-    fprintf(stderr, "[%s:%d] TODO: " msg "\n", __FILE__, __LINE__); \
-    jest__trap(); \
+    fprintf(stderr, "[%s:%d: %s] TODO: " msg "\n", __FILE__, __LINE__, __func__); \
+    JEST_TRAP(); \
 } while (0)
 
 #define JEST_MIN(x, y) (((x) < (y))? (x) : (y))
 #define JEST_MAX(x, y) (((x) > (y))? (x) : (y))
 
-#if JEST_USE_MATH_H
-#   include <math.h>
-#   define JEST_REQUIRES_MATH_H 1
-#   define JEST_NAN NAN
-#   define JEST_INFINITY INFINITY
-#endif
-
 #ifndef JEST_NAN
-#   if (defined(__clang__) || defined(__GNUC__))
+#   if (defined(__clang__) || defined(__GNUC__)) && !JEST_USE_MATH_H
 #       define JEST_NAN __builtin_nanf("")
 #   else
 #       include <math.h>
@@ -64,7 +65,7 @@ do { \
 #endif // !JEST_NAN
 
 #ifndef JEST_INFINITY
-#   if (defined(__clang__) || defined(__GNUC__))
+#   if (defined(__clang__) || defined(__GNUC__)) && !JEST_USE_MATH_H
 #       define JEST_INFINITY __builtin_inff()
 #   else
 #       include <math.h>
@@ -79,16 +80,139 @@ do { \
 #   define JEST_LITERAL(type) (type)
 #endif
 
+typedef struct jest_arena_t jest_arena_t;
+
 #define JEST_STR(s) JEST_LITERAL(jest_string_t) {sizeof("" s "") - 1, (char *)(void *)"" s ""}
 #define JEST_STR_NULL JEST_LITERAL(jest_string_t) {0, NULL}
 #define JESTW_NO_KEY  JEST_STR_NULL
-typedef struct { size_t len; char *data; } jest_string_t;
+typedef struct jest_string_t { size_t len; char *data; } jest_string_t;
 typedef struct {
     size_t cap; 
     jest_string_t buffer;
 } jest_sb_t;
 
+JEST_GNUC_ATTRIBUTE((__warn_unused_result__))
+void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align);
+
+JEST_GNUC_ATTRIBUTE((__warn_unused_result__))
+void *jest_arena_alloc(jest_arena_t *arena, size_t size);
+
+jest_string_t jest_str(jest_arena_t *arena, const char *cstr);
+jest_string_t jest_strn(jest_arena_t *arena, const char *cstr, size_t len);
+
+JEST_GNUC_ATTRIBUTE((__format__(__printf__, 2, 3)))
+jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...);
+
+bool jest_is_str_null(jest_string_t str);
+jest_string_t jest_char(jest_arena_t *arena, char c);
+
 typedef struct jest_typed_value_t jest_typed_value_t;
+
+typedef struct jest_arena_bucket_t {
+    struct jest_arena_bucket_t *next;
+    size_t size;
+    char data[1 /* flexible array */];
+} jest_arena_bucket_t;
+
+struct jest_arena_t {
+    size_t default_bucket_size;
+    jest_arena_bucket_t *head;
+    jest_arena_bucket_t *current;
+    size_t offset;
+};
+
+JEST_GNUC_ATTRIBUTE((__warn_unused_result__))
+jest_arena_t *jest_arena_create(size_t default_bucket_size);
+
+void jest_arena_destroy(jest_arena_t *arena);
+void jest_arena_reset(jest_arena_t *arena);
+
+jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap);
+void jest_sb_reserve(jest_arena_t *arena, jest_sb_t *sb, size_t amount);
+void jest_sb_append(jest_arena_t *arena, jest_sb_t *sb, jest_string_t str);
+char jest_sb_pop(jest_sb_t *sb, size_t idx);
+
+enum jest_scope_type {
+    JEST_SCOPE_INVALID = 0,
+    JEST_SCOPE_OBJ,
+    JEST_SCOPE_ARR
+};
+
+enum jest_writer_error {
+    JEST_WRITER_SUCCESS = 0,
+    JEST_WRITER_ERR_MISMATCHED_SCOPE,
+    JEST_WRITER_ERR_BAD_PARAM,
+    JEST_WRITER_ERR_IO
+};
+
+typedef struct {
+    jest_sb_t data;
+    size_t idx_last_comma; // index of last comma, used to remove trailing commas
+    size_t scope_stack_cap;
+    size_t scope_stack_len;
+    enum jest_scope_type *scope_stack;
+} jest_writer_t;
+
+// jest writer/serializer functions
+jest_writer_t jest_writer_create(jest_arena_t *arena);
+enum jest_writer_error jestw_kv_begin_object(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
+enum jest_writer_error jestw_end_object(jest_arena_t *arena, jest_writer_t *writer);
+enum jest_writer_error jestw_kv_begin_array(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
+enum jest_writer_error jestw_end_array(jest_arena_t *arena, jest_writer_t *writer);
+enum jest_writer_error jestw_kv_null(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
+enum jest_writer_error jestw_kv_bool(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, bool val);
+enum jest_writer_error jestw_kv_uint(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uintmax_t val);
+enum jest_writer_error jestw_kv_int(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, intmax_t val);
+enum jest_writer_error jestw_kv_float(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, double val);
+enum jest_writer_error jestw_kv_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, jest_string_t val);
+enum jest_writer_error jestw_comment(jest_arena_t *arena, jest_writer_t *writer, jest_string_t text);
+enum jest_writer_error jestw_newline(jest_arena_t *arena, jest_writer_t *writer);
+enum jest_writer_error jestw_writef(const jest_writer_t *writer, FILE *file);
+enum jest_writer_error jestw_write(const jest_writer_t *writer, const char *path);
+
+extern inline enum jest_writer_error jestw_begin_object(jest_arena_t *arena, jest_writer_t *writer);
+extern inline enum jest_writer_error jestw_begin_array(jest_arena_t *arena, jest_writer_t *writer);
+extern inline enum jest_writer_error jestw_null(jest_arena_t *arena, jest_writer_t *writer);
+extern inline enum jest_writer_error jestw_bool(jest_arena_t *arena, jest_writer_t *writer, bool val);
+extern inline enum jest_writer_error jestw_uint(jest_arena_t *arena, jest_writer_t *writer, uint64_t val);
+extern inline enum jest_writer_error jestw_int(jest_arena_t *arena, jest_writer_t *writer, int64_t val);
+extern inline enum jest_writer_error jestw_float(jest_arena_t *arena, jest_writer_t *writer, double val);
+extern inline enum jest_writer_error jestw_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t val);
+
+typedef struct { int line, col; } jest_file_pos_t;
+
+// all single-char tokens are represented as their ascii value
+enum jest_lexeme_type {
+    JEST_LEXEME_INVALID = 0,
+    JEST_LEXEME_IDENT = 256,
+    JEST_LEXEME_UINT,
+    JEST_LEXEME_INT,
+    JEST_LEXEME_FLOAT,
+    JEST_LEXEME_STRING
+};
+
+enum jest_lexer_error {
+    JEST_LEXER_SUCCESS = 0,
+    JEST_LEXER_ERR_MISMATCHED_SCOPE,
+    JEST_LEXER_ERR_BAD_PARAM,
+    JEST_LEXER_ERR_IO,
+    JEST_LEXER_ERR_UNEXPECTED_TOKEN
+};
+
+typedef struct {
+    jest_file_pos_t pos;
+    enum jest_lexeme_type lexeme_type;
+    const char *current;
+    const char *end;
+    const char *lexeme_start;
+    const char *lexeme_end;
+
+    union {
+        uintmax_t as_uint;
+        intmax_t as_int;
+        double as_float;
+    } lexeme_val;
+} jest_lexer_t;
 
 typedef struct { size_t len; jest_typed_value_t *elems; } jest_array_t;
 typedef struct {
@@ -130,115 +254,28 @@ struct jest_typed_value_t {
     } v;
 };
 
-typedef struct jest_arena_bucket_t {
-    struct jest_arena_bucket_t *next;
-    size_t size;
-    char data[1 /* flexible array */];
-} jest_arena_bucket_t;
-
-typedef struct {
-    size_t default_bucket_size;
-    jest_arena_bucket_t *head;
-    jest_arena_bucket_t *current;
-    size_t offset;
-} jest_arena_t;
-
-
-enum jest_scope_type {
-    JEST_SCOPE_INVALID = 0,
-    JEST_SCOPE_OBJ,
-    JEST_SCOPE_ARR
-};
-
-enum jest_writer_error {
-    JEST_WRITER_SUCCESS = 0,
-    JEST_WRITER_ERR_MISMATCHED_SCOPE,
-    JEST_WRITER_ERR_BAD_PARAM,
-    JEST_WRITER_ERR_IO_FAIL
-};
-
-typedef struct {
-    jest_sb_t data;
-    size_t idx_last_comma; // index of last comma, used to remove trailing commas
-    size_t scope_stack_cap;
-    size_t scope_stack_len;
-    enum jest_scope_type *scope_stack;
-} jest_writer_t;
-
-jest__gnuc_attribute((__warn_unused_result__))
-jest_arena_t *jest_arena_create(size_t default_bucket_size);
-
-void jest_arena_destroy(jest_arena_t *arena);
-void jest_arena_reset(jest_arena_t *arena);
-
-jest__gnuc_attribute((__warn_unused_result__))
-void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align);
-
-jest__gnuc_attribute((__warn_unused_result__))
-void *jest_arena_alloc(jest_arena_t *arena, size_t size);
-
-jest_string_t jest_str(jest_arena_t *arena, const char *cstr);
-jest_string_t jest_strn(jest_arena_t *arena, const char *cstr, size_t len);
-
-jest__gnuc_attribute((__format__(__printf__, 2, 3)))
-jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...);
-
-bool jest_is_str_null(jest_string_t str);
-jest_string_t jest_char(jest_arena_t *arena, char c);
-
-jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap);
-void jest_sb_reserve(jest_arena_t *arena, jest_sb_t *sb, size_t amount);
-void jest_sb_append(jest_arena_t *arena, jest_sb_t *sb, jest_string_t str);
-char jest_sb_pop(jest_sb_t *sb, size_t idx);
-
-// jest writer/serializer functions
-jest_writer_t jest_writer_create(jest_arena_t *arena);
-enum jest_writer_error jestw_kv_begin_object(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
-enum jest_writer_error jestw_end_object(jest_arena_t *arena, jest_writer_t *writer);
-enum jest_writer_error jestw_kv_begin_array(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
-enum jest_writer_error jestw_end_array(jest_arena_t *arena, jest_writer_t *writer);
-enum jest_writer_error jestw_kv_null(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key);
-enum jest_writer_error jestw_kv_bool(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, bool val);
-enum jest_writer_error jestw_kv_uint(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, uintmax_t val);
-enum jest_writer_error jestw_kv_int(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, intmax_t val);
-enum jest_writer_error jestw_kv_float(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, double val);
-enum jest_writer_error jestw_kv_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t key, jest_string_t val);
-enum jest_writer_error jestw_comment(jest_arena_t *arena, jest_writer_t *writer, jest_string_t text);
-enum jest_writer_error jestw_newline(jest_arena_t *arena, jest_writer_t *writer);
-enum jest_writer_error jestw_writef(const jest_writer_t *writer, FILE *file);
-enum jest_writer_error jestw_write(const jest_writer_t *writer, const char *path);
-
-extern inline enum jest_writer_error jestw_begin_object(jest_arena_t *arena, jest_writer_t *writer);
-extern inline enum jest_writer_error jestw_begin_array(jest_arena_t *arena, jest_writer_t *writer);
-extern inline enum jest_writer_error jestw_null(jest_arena_t *arena, jest_writer_t *writer);
-extern inline enum jest_writer_error jestw_bool(jest_arena_t *arena, jest_writer_t *writer, bool val);
-extern inline enum jest_writer_error jestw_uint(jest_arena_t *arena, jest_writer_t *writer, uint64_t val);
-extern inline enum jest_writer_error jestw_int(jest_arena_t *arena, jest_writer_t *writer, int64_t val);
-extern inline enum jest_writer_error jestw_float(jest_arena_t *arena, jest_writer_t *writer, double val);
-extern inline enum jest_writer_error jestw_string(jest_arena_t *arena, jest_writer_t *writer, jest_string_t val);
-
 #if JEST_REQUIRES_MATH_H
-#   define jest_signbit signbit
-#   define jest_isinf isinf
-#   define jest_isnan isnan
+#   define JEST_SIGNBIT signbit
+#   define JEST_ISINF isinf
+#   define JEST_ISNAN isnan
 #else
-#   define jest_signbit jest__signbit
-#   define jest_isinf jest__isinf
-#   define jest_isnan jest__isnan
+#   define JEST_SIGNBIT jest__signbit
+#   define JEST_ISINF jest__isinf
+#   define JEST_ISNAN jest__isnan
 
-jest__gnuc_attribute((__unused__))
+JEST_GNUC_ATTRIBUTE((__unused__))
 static int jest__signbit(double x)
 {
     return *((uint64_t *)(void *)&x) >> 63;
 }
 
-jest__gnuc_attribute((__unused__))
+JEST_GNUC_ATTRIBUTE((__unused__))
 static int jest__isinf(double x)
 {
     return (*((uint64_t *)(void *)&x) & INT64_MAX) == UINT64_C(0x7FF0000000000000);
 }
 
-jest__gnuc_attribute((__unused__))
+JEST_GNUC_ATTRIBUTE((__unused__))
 static int jest__isnan(double x)
 {
     return (*((uint64_t *)(void *)&x) & INT64_MAX) > UINT64_C(0x7FF0000000000000);
@@ -459,109 +496,13 @@ lbl_write_unicode:
     return sb.buffer;
 }
 
-static jest_arena_bucket_t *jest__arena_alloc_bucket(size_t size)
-{
-    jest_arena_bucket_t *ret = (jest_arena_bucket_t *)malloc(sizeof(*ret) + size - 1);
-    if (!ret) JEST_PANIC();
-
-    ret->size = size;
-    ret->next = NULL;
-
-    return ret;
-}
-
-static void jest__arena_next(jest_arena_t *arena, size_t min_size)
-{
-    if (!arena) return;
-
-    arena->offset = 0;
-    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
-    while (next) {
-        arena->current = next;
-        next = next->next;
-        if (arena->current->size >= min_size) {
-            return;
-        }
-    }
-
-    next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
-    if (!arena->current) {
-        arena->head = arena->current = next;
-        return;
-    }
-
-    arena->current->next = next;
-    arena->current = next;
-}
-
-jest_arena_t *jest_arena_create(size_t default_bucket_size)
-{
-    jest_arena_t *ret = (jest_arena_t *)malloc(sizeof(*ret));
-    if (!ret) JEST_PANIC();
-
-    ret->default_bucket_size = default_bucket_size;
-    ret->head = ret->current = NULL;
-    ret->offset = 0;
-    return ret;
-}
-
-void jest_arena_destroy(jest_arena_t *arena)
-{
-    if (!arena) return;
-
-    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
-    while (arena->head) {
-        free(arena->head);
-        arena->head = next;
-        if (next) next = next->next;
-    }
-
-    free(arena);
-}
-
-void jest_arena_reset(jest_arena_t *arena)
-{
-    arena->current = arena->head;
-    arena->offset = 0;
-}
-
-void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align)
-{
-    if (!arena || !size || !align) return NULL;
-    if (!arena->current) jest__arena_next(arena, size + align - 1);
-
-    const uintptr_t current = (uintptr_t)(arena->current->data + arena->offset);
-    const uintptr_t mask    = (uintptr_t)(align - 1);
-    const uintptr_t padding = (current & mask)? align - (current & mask) : 0;
-
-    // printf("arena->current->size - arena->offset = %zu\n", arena->current->size - arena->offset);
-    if (size + padding > arena->current->size - arena->offset) jest__arena_next(arena, size);
-    if (!arena->current) JEST_PANIC();
-
-    void *ret = arena->current->data + arena->offset + padding;
-    arena->offset += size + padding;
-    memset(ret, 0, size);
-    return ret;
-}
-
-void *jest_arena_alloc(jest_arena_t *arena, size_t size)
-{
-    return jest_arena_alloc_aligned(arena, size, 2 * sizeof(void *));
-}
-
 jest_string_t jest_str(jest_arena_t *arena, const char *cstr)
 {
     if (!arena || !cstr) {
         return JEST_STR_NULL;
     }
 
-    jest_string_t ret;
-    ret.len = strlen(cstr);
-    ret.data = (char *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
-    if (!ret.data) JEST_PANIC();
-    memcpy(ret.data, cstr, ret.len);
-
-    return ret;
+    return jest_strn(arena, cstr, strlen(cstr));
 }
 
 jest_string_t jest_strn(jest_arena_t *arena, const char *cstr, size_t len)
@@ -573,7 +514,7 @@ jest_string_t jest_strn(jest_arena_t *arena, const char *cstr, size_t len)
     jest_string_t ret;
     ret.len = len;
     ret.data = (char *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
-    if (!ret.data) JEST_PANIC();
+    JEST_ASSERT(ret.data, "failed to allocate character buffer in arena");
     memcpy(ret.data, cstr, ret.len);
 
     return ret;
@@ -596,7 +537,7 @@ jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...)
     jest_string_t ret;
     ret.len = n;
     ret.data = (char *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
-    if (!ret.data) JEST_PANIC();
+    JEST_ASSERT(ret.data, "failed to allocate character buffer in arena");
 
     vsnprintf((char *)(void *)ret.data, n + 1, fmt, args);
     va_end(args);
@@ -629,7 +570,7 @@ jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap)
     ret.cap = start_cap;
     ret.buffer.len = 0;
     ret.buffer.data = (char *)jest_arena_alloc_aligned(arena, ret.cap, 1);
-    if (!ret.buffer.data) JEST_PANIC();
+    JEST_ASSERT(ret.buffer.data, "failed to allocate buffer for string builder");
 
     return ret;
 }
@@ -675,6 +616,96 @@ char jest_sb_pop(jest_sb_t *sb, size_t idx)
     return ret;
 }
 
+static jest_arena_bucket_t *jest__arena_alloc_bucket(size_t size)
+{
+    jest_arena_bucket_t *ret = (jest_arena_bucket_t *)malloc(sizeof(*ret) + size - 1);
+    JEST_ASSERT(ret, "nomem");
+
+    ret->size = size;
+    ret->next = NULL;
+
+    return ret;
+}
+
+static void jest__arena_next(jest_arena_t *arena, size_t min_size)
+{
+    if (!arena) return;
+
+    arena->offset = 0;
+    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
+    while (next) {
+        arena->current = next;
+        next = next->next;
+        if (arena->current->size >= min_size) {
+            return;
+        }
+    }
+
+    next = jest__arena_alloc_bucket(JEST_MAX(min_size, arena->default_bucket_size));
+    if (!arena->current) {
+        arena->head = arena->current = next;
+        return;
+    }
+
+    arena->current->next = next;
+    arena->current = next;
+}
+
+jest_arena_t *jest_arena_create(size_t default_bucket_size)
+{
+    jest_arena_t *ret = (jest_arena_t *)malloc(sizeof(*ret));
+    JEST_ASSERT(ret, "nomem");
+
+    ret->default_bucket_size = default_bucket_size;
+    ret->head = ret->current = NULL;
+    ret->offset = 0;
+    return ret;
+}
+
+void jest_arena_destroy(jest_arena_t *arena)
+{
+    if (!arena) return;
+
+    jest_arena_bucket_t *next = (arena->head)? arena->head->next : NULL;
+    while (arena->head) {
+        free(arena->head);
+        arena->head = next;
+        if (next) next = next->next;
+    }
+
+    free(arena);
+}
+
+void jest_arena_reset(jest_arena_t *arena)
+{
+    arena->current = arena->head;
+    arena->offset = 0;
+}
+
+void *jest_arena_alloc_aligned(jest_arena_t *arena, size_t size, size_t align)
+{
+    if (!arena || !size || !align) return NULL;
+    if (!arena->current) jest__arena_next(arena, size + align - 1);
+
+    const uintptr_t current = (uintptr_t)(arena->current->data + arena->offset);
+    const uintptr_t mask    = (uintptr_t)(align - 1);
+    const uintptr_t padding = (current & mask)? align - (current & mask) : 0;
+
+    // printf("arena->current->size - arena->offset = %zu\n", arena->current->size - arena->offset);
+    if (size + padding > arena->current->size - arena->offset) jest__arena_next(arena, size);
+    JEST_ASSERT(arena->current, "failed to allocate new bucket for arena");
+
+    void *ret = arena->current->data + arena->offset + padding;
+    arena->offset += size + padding;
+    memset(ret, 0, size);
+    return ret;
+}
+
+void *jest_arena_alloc(jest_arena_t *arena, size_t size)
+{
+    return jest_arena_alloc_aligned(arena, size, 2 * sizeof(void *));
+}
+
 static void jest__writer_push_scope(jest_arena_t *arena, jest_writer_t *writer, enum jest_scope_type scope)
 {
     if (!arena || !writer) return;
@@ -682,7 +713,7 @@ static void jest__writer_push_scope(jest_arena_t *arena, jest_writer_t *writer, 
     if (writer->scope_stack_len + 1 > writer->scope_stack_cap) {
         writer->scope_stack_cap = (writer->scope_stack_cap)? 2 * writer->scope_stack_cap : 32;
         enum jest_scope_type *new_mem = (enum jest_scope_type *)jest_arena_alloc(arena, sizeof(*new_mem) * writer->scope_stack_cap);
-        if (!new_mem) JEST_PANIC();
+        JEST_ASSERT(new_mem, "failed to allocate new memory for writer scope stack");
         memcpy(new_mem, writer->scope_stack, writer->scope_stack_len * sizeof(*writer->scope_stack));
         writer->scope_stack = new_mem;
     }
@@ -710,7 +741,7 @@ jest_writer_t jest_writer_create(jest_arena_t *arena)
     jest_writer_t ret;
     memset(&ret, 0, sizeof(ret));
     ret.data = jest_sb_create(arena, 1024);
-    if (!ret.data.buffer.data) JEST_PANIC();
+    JEST_ASSERT(ret.data.buffer.data, "failed to create writer");
     return ret;
 }
 
@@ -806,9 +837,9 @@ enum jest_writer_error jestw_kv_uint(jest_arena_t *arena, jest_writer_t *writer,
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR("\t"));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    if (jest_isinf(val) || jest_isnan(val)) {
-        if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
+    if (JEST_ISINF(val) || JEST_ISNAN(val)) {
+        if (JEST_SIGNBIT(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
+        jest_sb_append(arena, &writer->data, JEST_ISINF(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
         jest__writer_comma(arena, writer);
         jestw_newline(arena, writer);
         return JEST_WRITER_SUCCESS;
@@ -826,9 +857,9 @@ enum jest_writer_error jestw_kv_int(jest_arena_t *arena, jest_writer_t *writer, 
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR("\t"));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    if (jest_isinf(val) || jest_isnan(val)) {
-        if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
+    if (JEST_ISINF(val) || JEST_ISNAN(val)) {
+        if (JEST_SIGNBIT(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
+        jest_sb_append(arena, &writer->data, JEST_ISINF(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
         jest__writer_comma(arena, writer);
         jestw_newline(arena, writer);
         return JEST_WRITER_SUCCESS;
@@ -846,9 +877,9 @@ enum jest_writer_error jestw_kv_float(jest_arena_t *arena, jest_writer_t *writer
     for (size_t i = 0; i < writer->scope_stack_len; ++i) jest_sb_append(arena, &writer->data, JEST_STR("\t"));
 
     if (!jest_is_str_null(key)) jest_sb_append(arena, &writer->data, jest_fstr(arena, "\"%s\": ", jest__escape_string(arena, key).data));
-    if (jest_isinf(val) || jest_isnan(val)) {
-        if (jest_signbit(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
-        jest_sb_append(arena, &writer->data, jest_isinf(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
+    if (JEST_ISINF(val) || JEST_ISNAN(val)) {
+        if (JEST_SIGNBIT(val)) jest_sb_append(arena, &writer->data, JEST_STR("-"));
+        jest_sb_append(arena, &writer->data, JEST_ISINF(val)? JEST_STR("Infinity") : JEST_STR("NaN"));
         jest__writer_comma(arena, writer);
         jestw_newline(arena, writer);
         return JEST_WRITER_SUCCESS;
@@ -903,7 +934,7 @@ enum jest_writer_error jestw_write(const jest_writer_t *writer, const char *path
 {
     if (!writer || !path) return JEST_WRITER_ERR_BAD_PARAM;
     FILE *file = fopen(path, "w");
-    if (!file) return JEST_WRITER_ERR_IO_FAIL;
+    if (!file) return JEST_WRITER_ERR_IO;
 
     const enum jest_writer_error err = jestw_writef(writer, file);
     fclose(file);
