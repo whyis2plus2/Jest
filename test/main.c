@@ -24,7 +24,7 @@ int main(void)
     printf("sb.cap: %zu, sb.len: %zu, sb.data: \"%s\"\n", sb.cap, sb.buffer.len, sb.buffer.data);
     assert(*x == INT_MAX && *y == 250);
 
-    jest_writer_t writer = jest_writer_create(arena);
+    jestw_t writer = jestw_create(arena);
     
     jestw_begin_object(arena, &writer);
         jestw_comment(arena, &writer, JEST_STR("comments are allowed to be serialized!"));
