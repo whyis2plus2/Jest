@@ -292,7 +292,7 @@ typedef struct { bool valid; int len; char value[4]; }  jest__utf8_info;
 
 // helper functions for converting codepoints to/from utf-8 bytes
 static jest__codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequence, size_t max_len);
-static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str);
+static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint);
 
 // helper functions escaping/unescaping strings so that they can be properly written to/read from a file
 static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str);
@@ -394,7 +394,9 @@ void jest_sb_reserve(jest_arena_t *arena, jest_sb_t *sb, size_t amount)
     if (amount <= sb->cap) return;
 
     jest_sb_t out = jest_sb_create(arena, sb->cap * 2);
-    if (sb->buffer.data) memcpy(out.buffer.data, sb->buffer.data, sb->buffer.len + 1);
+
+    // NOLINTNEXTLINE(clang-analyzer-unix.cstring.NullArg)
+    memcpy(out.buffer.data, sb->buffer.data, sb->buffer.len + 1);
     *sb = out;
 }
 
