@@ -83,10 +83,11 @@ do { \
 
 typedef struct jest_arena_t jest_arena_t;
 
-#define JEST_STR(s) JEST_LITERAL(jest_string_t) {sizeof("" s "") - 1, (char *)(void *)"" s ""}
+#define JEST_STR(s) JEST_LITERAL(jest_string_t) {sizeof("" s "") - 1, (jest_char8_t *)(void *)"" s ""}
 #define JEST_STR_NULL JEST_LITERAL(jest_string_t) {0, NULL}
 #define JESTW_NO_KEY  JEST_STR_NULL
-typedef struct jest_string_t { size_t len; char *data; } jest_string_t;
+typedef uint8_t jest_char8_t;
+typedef struct jest_string_t { size_t len; jest_char8_t *data; } jest_string_t;
 typedef struct {
     size_t cap; 
     jest_string_t buffer;
@@ -131,7 +132,7 @@ void jest_arena_reset(jest_arena_t *arena);
 jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap);
 void jest_sb_reserve(jest_arena_t *arena, jest_sb_t *sb, size_t amount);
 void jest_sb_append(jest_arena_t *arena, jest_sb_t *sb, jest_string_t str);
-char jest_sb_pop(jest_sb_t *sb, size_t idx);
+jest_char8_t jest_sb_pop(jest_sb_t *sb, size_t idx);
 
 enum jest_scope_type {
     JEST_SCOPE_INVALID = 0,
@@ -293,10 +294,10 @@ static int jest__isnan(double x)
 
 // helper structs for utf-8 handling
 typedef struct { bool valid; int len; uint32_t value; } jest__codepoint_info;
-typedef struct { bool valid; int len; char value[4]; }  jest__utf8_info;
+typedef struct { bool valid; int len; jest_char8_t value[4]; }  jest__utf8_info;
 
 // helper functions for converting codepoints to/from utf-8 bytes
-static jest__codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequence, size_t max_len);
+static jest__codepoint_info jest__utf8_to_codepoint_info(const jest_char8_t *utf8_sequence, size_t max_len);
 static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint);
 
 // helper functions escaping/unescaping strings so that they can be properly written to/read from a file
@@ -331,7 +332,7 @@ jest_string_t jest_strn(jest_arena_t *arena, const char *cstr, size_t len)
 
     jest_string_t ret;
     ret.len = len;
-    ret.data = (char *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
+    ret.data = (jest_char8_t *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
     JEST_ASSERT(ret.data, "failed to allocate character buffer in arena");
     memcpy(ret.data, cstr, ret.len);
 
@@ -354,7 +355,7 @@ jest_string_t jest_fstr(jest_arena_t *arena, const char *fmt, ...)
 
     jest_string_t ret;
     ret.len = n;
-    ret.data = (char *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
+    ret.data = (jest_char8_t *)jest_arena_alloc_aligned(arena, ret.len + 1, 1);
     JEST_ASSERT(ret.data, "failed to allocate character buffer in arena");
 
     vsnprintf((char *)(void *)ret.data, n + 1, fmt, args);
@@ -387,7 +388,7 @@ jest_sb_t jest_sb_create(jest_arena_t *arena, size_t start_cap)
     jest_sb_t ret;
     ret.cap = start_cap;
     ret.buffer.len = 0;
-    ret.buffer.data = (char *)jest_arena_alloc_aligned(arena, ret.cap, 1);
+    ret.buffer.data = (jest_char8_t *)jest_arena_alloc_aligned(arena, ret.cap, 1);
     JEST_ASSERT(ret.buffer.data, "failed to allocate buffer for string builder");
 
     return ret;
@@ -423,16 +424,16 @@ void jest_sb_append(jest_arena_t *arena, jest_sb_t *sb, jest_string_t str)
     sb->buffer.len += str.len;
 }
 
-char jest_sb_pop(jest_sb_t *sb, size_t idx)
+jest_char8_t jest_sb_pop(jest_sb_t *sb, size_t idx)
 {
-    if (!sb) return (char)0xff;
+    if (!sb) return 0xff;
 
     if (idx == sb->buffer.len - 1) {
         --sb->buffer.len;
         return sb->buffer.data[sb->buffer.len];
     }
 
-    const char ret = sb->buffer.data[idx];
+    const jest_char8_t ret = sb->buffer.data[idx];
     memmove(sb->buffer.data + idx, sb->buffer.data + idx + 1, sb->buffer.len - idx);
     --sb->buffer.len;
     return ret;
@@ -778,7 +779,7 @@ do { \
     uint64_t m  = 0;
 
     const int left = str.len & 7;
-    const char *end = str.data + str.len - left;
+    const jest_char8_t *end = str.data + str.len - left;
     uint64_t b = ((uint64_t)str.len) << 56;
 
     v3 ^= seed1;
@@ -786,8 +787,8 @@ do { \
     v1 ^= seed1;
     v0 ^= seed0;
 
-    uint8_t *current;
-    for (current = (uint8_t *)str.data; current < (uint8_t *)end; current += 8) {
+    jest_char8_t *current;
+    for (current = str.data; current < end; current += 8) {
         m = JEST__U8TOU64_LE(current);
         v3 ^= m;
         JEST__SIPROUND(); // cROUND
@@ -831,17 +832,17 @@ do { \
 #undef JEST__SIPROUND
 }
 
-static jest__codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequence, size_t max_len)
+static jest__codepoint_info jest__utf8_to_codepoint_info(const jest_char8_t *utf8_sequence, size_t max_len)
 {
     int len = 0;
     uint32_t codepoint = 0;
 
     if (!utf8_sequence || !max_len) goto lbl_invalid;
 
-    if      (max_len >= 1 && (uint8_t)utf8_sequence[0] < 0x80)           len = 1;
-    else if (max_len >= 2 && ((uint8_t)utf8_sequence[0] & 0xf0)  < 0xe0) len = 2;
-    else if (max_len >= 3 && ((uint8_t)utf8_sequence[0] & 0xf0)  < 0xf0) len = 3;
-    else if (max_len >= 4 && ((uint8_t)utf8_sequence[0] & 0xf0) == 0xf0) len = 4;
+    if      (max_len >= 1 && utf8_sequence[0] < 0x80)           len = 1;
+    else if (max_len >= 2 && (utf8_sequence[0] & 0xf0)  < 0xe0) len = 2;
+    else if (max_len >= 3 && (utf8_sequence[0] & 0xf0)  < 0xf0) len = 3;
+    else if (max_len >= 4 && (utf8_sequence[0] & 0xf0) == 0xf0) len = 4;
     else goto lbl_invalid;
 
     codepoint = (len == 1)? (uint32_t)utf8_sequence[0] :
@@ -850,9 +851,9 @@ static jest__codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequen
 
     for (int i = 1; i < len; ++i) {
         codepoint <<= 6;
-        codepoint += (uint8_t)utf8_sequence[i] & 0x3f;
-        if (((uint8_t)utf8_sequence[i] & 0xf0) >= 0xc0) goto lbl_invalid;
-        if (!((uint8_t)utf8_sequence[i] & 0xf0)) goto lbl_invalid;
+        codepoint += utf8_sequence[i] & 0x3f;
+        if ((utf8_sequence[i] & 0xf0) >= 0xc0) goto lbl_invalid;
+        if (!(utf8_sequence[i] & 0xf0)) goto lbl_invalid;
     }
 
     // handle overlong encodings
@@ -870,13 +871,13 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
 {
     if (codepoint > 0x10ffff) {
         return JEST_LITERAL(jest__utf8_info) {
-            true, 1, {(char)0xef, (char)0xbf, (char)0xbd} // U+FFFD as utf-8 bytes
+            true, 1, {0xef, 0xbf, 0xbd} // U+FFFD as utf-8 bytes
         };
     }
 
     if (codepoint <= 0x7f) {
         return JEST_LITERAL(jest__utf8_info) {
-            true, 1, {(char)codepoint}
+            true, 1, {codepoint}
         }; 
     }
 
@@ -884,8 +885,8 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
         return JEST_LITERAL(jest__utf8_info) {
             true, 2,
             {
-                (char)(((codepoint >> 6) & 0x1f) | 0xc0),
-                (char)((codepoint        & 0x3f) | 0x80)
+                (((codepoint >> 6) & 0x1f) | 0xc0),
+                ((codepoint        & 0x3f) | 0x80)
             }
         };
     }
@@ -894,9 +895,9 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
         return JEST_LITERAL(jest__utf8_info) {
             true, 3,
             {
-                (char)(((codepoint >> 12) & 0x0f) | 0xe0),
-                (char)(((codepoint >>  6) & 0x3f) | 0x80),
-                (char)((codepoint         & 0x3f) | 0x80)
+                (((codepoint >> 12) & 0x0f) | 0xe0),
+                (((codepoint >>  6) & 0x3f) | 0x80),
+                ((codepoint         & 0x3f) | 0x80)
             }
         };
     }
@@ -904,10 +905,10 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
     return JEST_LITERAL(jest__utf8_info) {
         true, 4,
         {
-            (char)(((codepoint >> 18) & 0x07) | 0xf0),
-            (char)(((codepoint >> 12) & 0x3f) | 0x80),
-            (char)(((codepoint >>  6) & 0x3f) | 0x80),
-            (char)((codepoint         & 0x3f) | 0x80)
+            (((codepoint >> 18) & 0x07) | 0xf0),
+            (((codepoint >> 12) & 0x3f) | 0x80),
+            (((codepoint >>  6) & 0x3f) | 0x80),
+            ((codepoint         & 0x3f) | 0x80)
         }
     };
 }
@@ -937,7 +938,7 @@ static jest_string_t jest__escape_string(jest_arena_t *arena, jest_string_t str)
         jest__codepoint_info info = jest__utf8_to_codepoint_info(&str.data[i], str.len - 1);
         if (info.value > 0x7f || iscntrl(str.data[i]) || !isprint(str.data[i])) {
             if (!info.valid || info.value <= 0xff) {
-                jest_sb_append(arena, &sb, jest_fstr(arena, "\\x%.2" PRIx8 "", (uint8_t)str.data[i]));
+                jest_sb_append(arena, &sb, jest_fstr(arena, "\\x%.2" PRIx8 "", str.data[i]));
                 i += info.len - 1;
                 continue;
             }
@@ -1001,13 +1002,13 @@ lbl_write_raw:
         int n = 0;
         uint32_t codepoint = 0;
         if (expected == 4) {
-            sscanf(&str.data[i], "\\x%2" SCNx32 "%n", &codepoint, &n);
+            sscanf((char *)(void *)&str.data[i], "\\x%2" SCNx32 "%n", &codepoint, &n);
             if (n < expected) {
                 ++i;
                 goto lbl_write_raw;
             }
         } else {
-            sscanf(&str.data[i], "\\u%4" SCNx32 "%n", &codepoint, &n);
+            sscanf((char *)(void *)&str.data[i], "\\u%4" SCNx32 "%n", &codepoint, &n);
             if (n < expected) {
                 ++i;
                 goto lbl_write_raw;
@@ -1016,7 +1017,7 @@ lbl_write_raw:
             // handle utf-16 surrogate pairs
             if (0xd800 <= codepoint && codepoint <= 0xdbff && str.len - i - n >= 6) { // codepoint is high surrogate
                 uint16_t lo;
-                sscanf(&str.data[i + 6], "\\u%4" SCNx16 "%n", &lo, &n);
+                sscanf((char *)(void *)&str.data[i + 6], "\\u%4" SCNx16 "%n", &lo, &n);
                 if (n < 6) goto lbl_write_unicode;
                 if (0xdc00 <= lo && lo <= 0xdfff) { // lo is valid low surrogate
                     codepoint = ((codepoint - 0xd800) << 10) + ((lo - 0xdc00)) + 0x10000;
@@ -1032,7 +1033,7 @@ lbl_write_unicode:
         info = jest__codepoint_to_utf8_info(codepoint);
         if (!info.valid) goto lbl_write_raw;
 
-        jest_sb_append(arena, &sb, jest_strn(arena, info.value, info.len));
+        jest_sb_append(arena, &sb, jest_strn(arena, (char *)(void *)info.value, info.len));
         i += n - 1;
     }
 
