@@ -53,6 +53,7 @@ do { \
 
 #define JEST_MIN(x, y) (((x) < (y))? (x) : (y))
 #define JEST_MAX(x, y) (((x) > (y))? (x) : (y))
+#define JEST_ROTL64(n, k) (uint64_t)(((n) << (k)) | ((n) >> (64 - (k))))
 
 #ifndef JEST_NAN
 #   if (defined(__clang__) || defined(__GNUC__)) && !JEST_USE_MATH_H
@@ -179,6 +180,46 @@ extern inline enum jest_writer_error jestw_int(jest_arena_t *arena, jestw_t *wri
 extern inline enum jest_writer_error jestw_float(jest_arena_t *arena, jestw_t *writer, double val);
 extern inline enum jest_writer_error jestw_string(jest_arena_t *arena, jestw_t *writer, jest_string_t val);
 
+typedef struct { size_t len; jest_typed_value_t *elems; } jest_array_t;
+typedef struct {
+    size_t nelems;
+    size_t nbuckets;
+    uint32_t load_factor;
+    struct {
+        uint64_t hash; // hash of the key
+        uint64_t seed[2]; // seed used by siphash
+        jest_string_t key;
+        jest_typed_value_t *v;
+    } *buckets;
+} jest_object_t;
+
+enum jest_type {
+    JEST_TYPE_NULL = 1,
+    JEST_TYPE_BOOL,
+
+    // numeric types
+    JEST_TYPE_UINT,
+    JEST_TYPE_INT,
+    JEST_TYPE_FLOAT,
+
+    JEST_TYPE_STRING,
+    JEST_TYPE_ARRAY,
+    JEST_TYPE_OBJECT
+};
+
+struct jest_typed_value_t {
+    enum jest_type type;
+    union {
+        bool           as_bool;
+        uint64_t       as_uint;
+        int64_t        as_int;
+        double         as_float;
+        jest_string_t  as_string;
+        jest_array_t   as_array;
+        jest_object_t  as_object;
+    } v;
+};
+
 typedef struct { int line, col; } jest_file_pos_t;
 
 // all single-char tokens are represented as their ascii value
@@ -214,45 +255,9 @@ typedef struct {
     } lexeme_val;
 } jest_lexer_t;
 
-typedef struct { size_t len; jest_typed_value_t *elems; } jest_array_t;
-typedef struct {
-    size_t nelems;
-    size_t nbuckets;
-    uint32_t load_factor;
-    struct {
-        uint32_t hash; // hash of the key
-        uint32_t seed; // seed used by the hashing algorithm
-        jest_string_t key;
-        jest_typed_value_t *v;
-    } *buckets;
-} jest_object_t;
-
-enum jest_type {
-    JEST_TYPE_NULL = 1,
-    JEST_TYPE_BOOL,
-
-    // numeric types
-    JEST_TYPE_UINT,
-    JEST_TYPE_INT,
-    JEST_TYPE_FLOAT,
-
-    JEST_TYPE_STRING,
-    JEST_TYPE_ARRAY,
-    JEST_TYPE_OBJECT
-};
-
-struct jest_typed_value_t {
-    enum jest_type type;
-    union {
-        bool           as_bool;
-        uint64_t       as_uint;
-        int64_t        as_int;
-        double         as_float;
-        jest_string_t  as_string;
-        jest_array_t   as_array;
-        jest_object_t  as_object;
-    } v;
-};
+// siphash 1-3 function
+// based on the reference implementation at https://github.com/veorq/SipHash/
+uint64_t jest_siphash_1_3(jest_string_t str, uint64_t seed0, uint64_t seed1);
 
 #if JEST_REQUIRES_MATH_H
 #   define JEST_SIGNBIT signbit
@@ -733,6 +738,97 @@ extern inline enum jest_writer_error jestw_float(jest_arena_t *arena, jestw_t *w
 extern inline enum jest_writer_error jestw_string(jest_arena_t *arena, jestw_t *writer, jest_string_t val)
 {
     return jestw_kv_string(arena, writer, JESTW_NO_KEY, val);
+}
+
+// siphash 1-3 function
+// based on the reference implementation at https://github.com/veorq/SipHash/
+uint64_t jest_siphash_1_3(jest_string_t str, uint64_t seed0, uint64_t seed1)
+{
+// definition of this macro yoinked from https://github.com/veorq/SipHash/
+#define JEST__U8TOU64_LE(p)                                                       \
+    (((uint64_t)((p)[0])) | ((uint64_t)((p)[1]) << 8) |                        \
+     ((uint64_t)((p)[2]) << 16) | ((uint64_t)((p)[3]) << 24) |                 \
+     ((uint64_t)((p)[4]) << 32) | ((uint64_t)((p)[5]) << 40) |                 \
+     ((uint64_t)((p)[6]) << 48) | ((uint64_t)((p)[7]) << 56))
+
+#define JEST__SIPROUND() \
+do { \
+    v0 += v1; \
+    v1 = JEST_ROTL64(v1, 16); \
+    v2 ^= v0; \
+    v0 = JEST_ROTL64(v0, 32); \
+    v2 += v3; \
+    v3 = JEST_ROTL64(v3, 16); \
+    v3 ^= v2; \
+    v0 += v3; \
+    v3 = JEST_ROTL64(v3, 21); \
+    v3 ^= v0; \
+    v2 += v1; \
+    v1 = JEST_ROTL64(v1, 17); \
+    v1 ^= v2; \
+    v2 = JEST_ROTL64(v2, 32); \
+} while (0)
+
+    if (jest_is_str_null(str)) return 0;
+
+    uint64_t v0 = UINT64_C(0x736f6d6570736575);
+    uint64_t v1 = UINT64_C(0x646f72616e646f6d);
+    uint64_t v2 = UINT64_C(0x6c7967656e657261);
+    uint64_t v3 = UINT64_C(0x7465646279746573);
+    uint64_t m  = 0;
+
+    const int left = str.len & 7;
+    const char *end = str.data + str.len - left;
+    uint64_t b = ((uint64_t)str.len) << 56;
+
+    v3 ^= seed1;
+    v2 ^= seed0;
+    v1 ^= seed1;
+    v0 ^= seed0;
+
+    uint8_t *current;
+    for (current = (uint8_t *)str.data; current < (uint8_t *)end; current += 8) {
+        m = JEST__U8TOU64_LE(current);
+        v3 ^= m;
+        JEST__SIPROUND(); // cROUND
+        v0 ^= m;
+    }
+
+
+    switch (left) {
+        case 7:
+            b |= ((uint64_t)current[6]) << 48;
+        case 6:
+            b |= ((uint64_t)current[5]) << 40;
+        case 5:
+            b |= ((uint64_t)current[4]) << 32;
+        case 4:
+            b |= ((uint64_t)current[3]) << 24;
+        case 3:
+            b |= ((uint64_t)current[2]) << 16;
+        case 2:
+            b |= ((uint64_t)current[2]) << 16;
+        case 1:
+            b |= ((uint64_t)current[0]);
+        case 0:
+            break;
+    }
+
+    v3 ^= b;
+    JEST__SIPROUND(); // cROUND
+    v0 ^= b;
+    v2 ^= 0xff;
+
+    // dROUND
+    JEST__SIPROUND();
+    JEST__SIPROUND();
+    JEST__SIPROUND();
+
+    b = v0 ^ v1 ^ v2 ^ v3;
+    return b;
+
+#undef JEST__U8TOU64
+#undef JEST__SIPROUND
 }
 
 static jest__codepoint_info jest__utf8_to_codepoint_info(const char *utf8_sequence, size_t max_len)
