@@ -4,7 +4,7 @@
 /* c/c++ version check */
 #if defined(__cplusplus) && __cplusplus < 201103L
 #   error C++11 or later is required
-#elif !defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L
+#elif !defined(__cplusplus) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L)
 #   error C99 or later is required
 #endif
 
@@ -76,7 +76,7 @@ do { \
 #endif // !JEST_INF
 
 #ifdef __cplusplus
-#   define JEST_LITERAL type
+#   define JEST_LITERAL(type) type
 #else
 #   define JEST_LITERAL(type) (type)
 #endif
@@ -877,7 +877,7 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
 
     if (codepoint <= 0x7f) {
         return JEST_LITERAL(jest__utf8_info) {
-            true, 1, {codepoint}
+            true, 1, {(uint8_t)codepoint}
         }; 
     }
 
@@ -885,8 +885,8 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
         return JEST_LITERAL(jest__utf8_info) {
             true, 2,
             {
-                (((codepoint >> 6) & 0x1f) | 0xc0),
-                ((codepoint        & 0x3f) | 0x80)
+                (uint8_t)(((codepoint >> 6) & 0x1f) | 0xc0),
+                (uint8_t)((codepoint        & 0x3f) | 0x80)
             }
         };
     }
@@ -895,9 +895,9 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
         return JEST_LITERAL(jest__utf8_info) {
             true, 3,
             {
-                (((codepoint >> 12) & 0x0f) | 0xe0),
-                (((codepoint >>  6) & 0x3f) | 0x80),
-                ((codepoint         & 0x3f) | 0x80)
+                (uint8_t)(((codepoint >> 12) & 0x0f) | 0xe0),
+                (uint8_t)(((codepoint >>  6) & 0x3f) | 0x80),
+                (uint8_t)((codepoint         & 0x3f) | 0x80)
             }
         };
     }
@@ -905,10 +905,10 @@ static jest__utf8_info jest__codepoint_to_utf8_info(uint32_t codepoint)
     return JEST_LITERAL(jest__utf8_info) {
         true, 4,
         {
-            (((codepoint >> 18) & 0x07) | 0xf0),
-            (((codepoint >> 12) & 0x3f) | 0x80),
-            (((codepoint >>  6) & 0x3f) | 0x80),
-            ((codepoint         & 0x3f) | 0x80)
+            (uint8_t)(((codepoint >> 18) & 0x07) | 0xf0),
+            (uint8_t)(((codepoint >> 12) & 0x3f) | 0x80),
+            (uint8_t)(((codepoint >>  6) & 0x3f) | 0x80),
+            (uint8_t)((codepoint         & 0x3f) | 0x80)
         }
     };
 }
